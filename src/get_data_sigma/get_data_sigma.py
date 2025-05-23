@@ -1,32 +1,26 @@
+#####################################################################
+######################    Brayan Mora   #############################
+###################### get movilization #############################
+######################################################################
+
 import os
 import re
 import pandas as pd
 import unidecode
 
 def get_sigma(path_input, path_output):
+    print('inicio')
     # Lista de columnas requeridas
-    #columnas_requeridas = ['ANIO', 'CODIGO_SIT_ORIGEN', 'CODIGO_SIT_DESTINO','NUMERO_GUIA','ID_UNIDAD_PRODUCTORA_ORIGEN', 
-    #    'DEPARTAMENTO_ORIGEN', 'MUNICIPIO_ORIGEN','VEREDA_ORIGEN', 'TIPO_ORIGEN', 'ID_UNIDAD_PRODUCTORA_DESTINO', 'DEPARTAMENTO_DESTINO', 
-    #    'MUNICIPIO_DESTINO', 'VEREDA_DESTINO', 'TIPO_DESTINO','ESPECIE', 'TOTAL_ANIMALES', "'HEMBRAS MENOR DE 3 MESES'", "'HEMBRAS ENTRE 3 A 8 MESES'", "'HEMBRAS DE 8 A 12 MESES'", "'HEMBRAS 1 A 2 AÑOS'", 
-    #    "'HEMBRAS 2 A 3 AÑOS'", "'HEMBRAS DE 3 A 5 AÑOS'", "'HEMBRAS MAYORES DE 5 AÑOS'", "'MACHOS MENOR DE 3 MESES'", "'MACHOS ENTRE 3 A 8 MESES'", "'MACHOS DE 8 A 12 MESES'", 
-    #    "'MACHOS DE 1 A 2 AÑOS'", "'MACHOS DE 2 A 3 AÑOS'", "'MACHOS MAYORES A 3 AÑOS'", "'HEMBRA BUFALINA MENOR DE 3 ME", "'HEMBRA BUFALINA DE 3 A 8 MESE", 
-    #    "'HEMBRA BUFALINA ENTRE 8 Y 12 ", "'HEMBRA BUFALINA DE 1 A 2 AÑO", "'HEMBRA BUFALINA DE 2 A 3 AÑO", "'HEMBRA BUFALINA DE 3 A 5 AÑO", "'HEMBRA BUFALINA MAYOR DE 5 A", 
-    #    "'MACHOS BUFALINO MENOR DE 3 ME", "'MACHOS BUFALINO DE 3 A 8 MESE", "'MACHOS BUFALINO DE 8 A 12 MES", "'MACHOS BUFALINO DE 1 A 2 AÑO", "'MACHOS BUFALINO DE 2 A 3 AÑO", 
-    #    "'MACHOS BUFALINO MAYORES A 3 A", "'LACTANTES HASTA 30 DIAS'", "'PRECEBO 31 A 60 DIAS'", "'LEVANTE CEBA 61 A 180 DIAS'", "'HEMBRA REEMPLAZO MENOR DE 8 M", 
-    #    "'HEMBRA CRIA MAYOR A 8 MESES'", "'MACHO REPRODUCTOR MAYOR DE 6 "] 
-
-
-
-
-
-    columnas_requeridas = ['ANIO', 'CODIGO_SIT_ORIGEN', 'CODIGO_SIT_DESTINO','NUMERO_GUIA','ID_UNIDAD_PRODUCTORA_ORIGEN', 
-        'TIPO_ORIGEN', 'ID_UNIDAD_PRODUCTORA_DESTINO','TIPO_DESTINO','ESPECIE', 'TOTAL_ANIMALES', "'HEMBRAS MENOR DE 3 MESES'", "'HEMBRAS ENTRE 3 A 8 MESES'", "'HEMBRAS DE 8 A 12 MESES'", "'HEMBRAS 1 A 2 AÑOS'", 
+    columnas_requeridas = ['ANIO','CODIGO_SIT_ORIGEN','CODIGO_SIT_DESTINO', 'NUMERO_GUIA', 'ID_UNIDAD_PRODUCTORA_ORIGEN','ID_DEPARTAMENTO_ORIGEN','DEPARTAMENTO_ORIGEN',
+        'ID_MUNICIPIO_ORIGEN','MUNICIPIO_ORIGEN','ID_VEREDA_ORIGEN', 'VEREDA_ORIGEN', 'TIPO_ORIGEN' , 'ID_UNIDAD_PRODUCTORA_DESTINO', 'ID_DEPARTAMENTO_DESTINO',
+        'DEPARTAMENTO_DESTINO', 'ID_MUNICIPIO_DESTINO', 'MUNICIPIO_DESTINO' ,'ID_VEREDA_DESTINO', 'VEREDA_DESTINO', 'TIPO_DESTINO', 'ESPECIE', 'TOTAL_ANIMALES',
+        "'HEMBRAS MENOR DE 3 MESES'", "'HEMBRAS ENTRE 3 A 8 MESES'", "'HEMBRAS DE 8 A 12 MESES'", "'HEMBRAS 1 A 2 AÑOS'", 
         "'HEMBRAS 2 A 3 AÑOS'", "'HEMBRAS DE 3 A 5 AÑOS'", "'HEMBRAS MAYORES DE 5 AÑOS'", "'MACHOS MENOR DE 3 MESES'", "'MACHOS ENTRE 3 A 8 MESES'", "'MACHOS DE 8 A 12 MESES'", 
         "'MACHOS DE 1 A 2 AÑOS'", "'MACHOS DE 2 A 3 AÑOS'", "'MACHOS MAYORES A 3 AÑOS'", "'HEMBRA BUFALINA MENOR DE 3 ME", "'HEMBRA BUFALINA DE 3 A 8 MESE", 
         "'HEMBRA BUFALINA ENTRE 8 Y 12 ", "'HEMBRA BUFALINA DE 1 A 2 AÑO", "'HEMBRA BUFALINA DE 2 A 3 AÑO", "'HEMBRA BUFALINA DE 3 A 5 AÑO", "'HEMBRA BUFALINA MAYOR DE 5 A", 
         "'MACHOS BUFALINO MENOR DE 3 ME", "'MACHOS BUFALINO DE 3 A 8 MESE", "'MACHOS BUFALINO DE 8 A 12 MES", "'MACHOS BUFALINO DE 1 A 2 AÑO", "'MACHOS BUFALINO DE 2 A 3 AÑO", 
         "'MACHOS BUFALINO MAYORES A 3 A", "'LACTANTES HASTA 30 DIAS'", "'PRECEBO 31 A 60 DIAS'", "'LEVANTE CEBA 61 A 180 DIAS'", "'HEMBRA REEMPLAZO MENOR DE 8 M", 
-        "'HEMBRA CRIA MAYOR A 8 MESES'", "'MACHO REPRODUCTOR MAYOR DE 6 "] 
+        "'HEMBRA CRIA MAYOR A 8 MESES'", "'MACHO REPRODUCTOR MAYOR DE 6 "]
 
     log_resultados = []
 
@@ -35,7 +29,7 @@ def get_sigma(path_input, path_output):
 
     # Listar archivos .txt con año en el nombre (4 dígitos seguidos)
     archivos = [f for f in os.listdir(path_input) if f.endswith('.txt') and re.search(r'\d{4}', f)]
-
+    print(archivos)
     for archivo in archivos:
         ruta_archivo = os.path.join(path_input, archivo)
         anio = re.search(r'\d{4}', archivo).group()
@@ -75,7 +69,7 @@ def get_sigma(path_input, path_output):
 
         except Exception as e:
             log_resultados.append(f"{archivo} ({anio}): ERROR al procesar -> {e}")
-
+    print('final')
     # Guardar log
     log_path = os.path.join(path_output, "log_columnas.txt")
     with open(log_path, "w", encoding='utf-8') as f:
@@ -84,6 +78,7 @@ def get_sigma(path_input, path_output):
 
 
 get_sigma(
-    path_input=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\brutos\content",
-    path_output=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_get_sigma"
+    path_input= r'D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\brutos\content',
+    path_output=r'D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_get_sigma'
 )
+
