@@ -128,9 +128,3 @@ def check(path_predio, path_mov, path_output):
         print("✅ log_no_coincidencias.csv guardado")
 
 
-# -------------------- ejecutar --------------------
-check(
-    path_predio="D:\\OneDrive - CGIAR\\Desktop\\ganabosques\\farms\\input\\sagari",
-    path_mov="D:\\OneDrive - CGIAR\\Desktop\\ganabosques\\movilizacion\\data\\tmp_calc_mov",
-    path_output="D:\\OneDrive - CGIAR\\Desktop\\ganabosques\\movilizacion\\data\\new_farms"
-)

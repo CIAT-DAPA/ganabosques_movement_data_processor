@@ -77,8 +77,3 @@ def get_sigma(path_input, path_output):
             f.write(linea + "\n")
 
 
-get_sigma(
-    path_input= r'D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\brutos\content',
-    path_output=r'D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_get_sigma'
-)
-

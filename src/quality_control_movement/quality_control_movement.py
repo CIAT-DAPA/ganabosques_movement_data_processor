@@ -13,7 +13,7 @@ def mov_quality_control(path_input, path_output):
     log_data = []
 
     for file in os.listdir(path_input):
-        if file.endswith(".csv") or file.endswith(".txt"):
+        if file.endswith(".csv"):
             year = ''.join(filter(str.isdigit, file))
             file_path = os.path.join(path_input, file)
             base_filename = os.path.splitext(file)[0]
@@ -82,9 +82,3 @@ def mov_quality_control(path_input, path_output):
     df_log = pd.DataFrame(log_data)
     df_log.to_csv(os.path.join(path_output, "log_mov_quality_control.csv"), index=False, encoding='utf-8-sig')
 
-
-# Ejecutar función
-mov_quality_control(
-    path_input=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_get_sigma",
-    path_output=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_mov_quality_control"
-)

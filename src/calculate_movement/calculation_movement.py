@@ -41,9 +41,3 @@ def calc_mov(path_input, path_output):
     log_path = os.path.join(path_output, "log_calc_mov.txt")
     with open(log_path, "w", encoding="utf-8") as log_file:
         log_file.write("\n".join(log_lines))
-
-# Ejecutar función
-calc_mov(
-    path_input=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_mov_quality_control",
-    path_output=r"D:\OneDrive - CGIAR\Desktop\ganabosques\movilizacion\data\tmp_calc_mov"
-)
