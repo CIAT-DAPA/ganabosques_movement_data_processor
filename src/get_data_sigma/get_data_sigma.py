@@ -1,17 +1,13 @@
-#####################################################################
-######################    Brayan Mora   #############################
-###################### get movilization #############################
-######################################################################
-
 import os
 import re
 import pandas as pd
 import unidecode
 
 def get_sigma(path_input, path_output):
-    print('inicio')
+    print('Inicio del proceso get_data_sugma...')
+
     # Lista de columnas requeridas
-    columnas_requeridas = ['ANIO','CODIGO_SIT_ORIGEN','CODIGO_SIT_DESTINO', 'NUMERO_GUIA', 'ID_UNIDAD_PRODUCTORA_ORIGEN','ID_DEPARTAMENTO_ORIGEN','DEPARTAMENTO_ORIGEN',
+    columnas_requeridas = ['ANIO','MES','DIA','CODIGO_SIT_ORIGEN','CODIGO_SIT_DESTINO', 'NUMERO_GUIA', 'ID_UNIDAD_PRODUCTORA_ORIGEN','ID_DEPARTAMENTO_ORIGEN','DEPARTAMENTO_ORIGEN',
         'ID_MUNICIPIO_ORIGEN','MUNICIPIO_ORIGEN','ID_VEREDA_ORIGEN', 'VEREDA_ORIGEN', 'TIPO_ORIGEN' , 'ID_UNIDAD_PRODUCTORA_DESTINO', 'ID_DEPARTAMENTO_DESTINO',
         'DEPARTAMENTO_DESTINO', 'ID_MUNICIPIO_DESTINO', 'MUNICIPIO_DESTINO' ,'ID_VEREDA_DESTINO', 'VEREDA_DESTINO', 'TIPO_DESTINO', 'ESPECIE', 'TOTAL_ANIMALES',
         "'HEMBRAS MENOR DE 3 MESES'", "'HEMBRAS ENTRE 3 A 8 MESES'", "'HEMBRAS DE 8 A 12 MESES'", "'HEMBRAS 1 A 2 AÑOS'", 
@@ -24,13 +20,12 @@ def get_sigma(path_input, path_output):
 
     log_resultados = []
 
-    # Crear carpeta de salida si no existe
     os.makedirs(path_output, exist_ok=True)
 
-    # Listar archivos .txt con año en el nombre (4 dígitos seguidos)
     archivos = [f for f in os.listdir(path_input) if f.endswith('.txt') and re.search(r'\d{4}', f)]
-    print(archivos)
-    for archivo in archivos:
+    print(f"Número de archivos de movilización disponibles: {len(archivos)}")
+
+    for i, archivo in enumerate(archivos, start=1):
         ruta_archivo = os.path.join(path_input, archivo)
         anio = re.search(r'\d{4}', archivo).group()
 
@@ -44,36 +39,43 @@ def get_sigma(path_input, path_output):
             else:
                 log_resultados.append(f"{archivo} ({anio}): Todas las columnas requeridas están presentes.")
 
-            # Seleccionar solo las columnas que existen
             columnas_filtradas = [col for col in columnas_requeridas if col in columnas_disponibles]
             df_filtrado = df[columnas_filtradas]
 
-            # Limpiar los datos: convertir a minúsculas, eliminar tildes y reemplazar 'ñ' por 'n'
             def limpiar_texto(texto):
                 if isinstance(texto, str):
-                    # Convertir a minúsculas
                     texto = texto.lower()
-                    # Eliminar tildes y caracteres especiales
                     texto = unidecode.unidecode(texto)
-                    # Reemplazar 'ñ' por 'n'
                     texto = texto.replace('ñ', 'n')
                 return texto
 
-            # Aplicar la función de limpieza a todo el dataframe
             df_filtrado = df_filtrado.applymap(limpiar_texto)
 
-            # Guardar el dataframe procesado
+            # Crear columna DATE
+            if {'ANIO', 'MES', 'DIA'}.issubset(df_filtrado.columns):
+                df_filtrado['DATE'] = pd.to_datetime(df_filtrado['ANIO'] + '-' + df_filtrado['MES'] + '-' + df_filtrado['DIA'], errors='coerce')
+                df_filtrado = df_filtrado.drop(columns=['ANIO', 'MES', 'DIA'])
+
+            # Guardar resultado
             output_filename = f"{os.path.splitext(archivo)[0]}_filtrado_limpio.csv"
             output_path = os.path.join(path_output, output_filename)
             df_filtrado.to_csv(output_path, index=False, encoding='utf-8')
 
+            print(f"""
+#####################################################################
+######################    Brayan Mora   #############################
+###################### get movilization #############################
+#####################################################################
+Archivo {i}, cargado y procesado: {archivo}
+""")
+
         except Exception as e:
             log_resultados.append(f"{archivo} ({anio}): ERROR al procesar -> {e}")
-    print('final')
+
+    print('Proceso finalizado.')
+    
     # Guardar log
     log_path = os.path.join(path_output, "log_columnas.txt")
     with open(log_path, "w", encoding='utf-8') as f:
         for linea in log_resultados:
             f.write(linea + "\n")
-
-

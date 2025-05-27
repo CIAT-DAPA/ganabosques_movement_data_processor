@@ -1,47 +1,56 @@
 import os
 import pandas as pd
 
-
 def check(path_predio, path_mov, path_output):
+    print("🚀 Iniciando proceso de verificación de movimientos contra predios...")
+    
     # ---------- 1. Predios --------------------------------------------------
+    print("🔍 Buscando archivo de predios...")
     predio_file = next((f for f in os.listdir(path_predio) if f.endswith(".csv")), None)
     if predio_file is None:
         print("❌ No se encontró archivo CSV en el directorio de predios.")
         return
 
     predio_path = os.path.join(path_predio, predio_file)
+    print(f"📂 Leyendo archivo de predios: {predio_file}")
     predio = pd.read_csv(predio_path, dtype=str)
     print(f"✅ Predios cargados: {predio_file}  ({predio.shape[0]} filas)")
 
     predio["CODIGO_SIT"] = pd.to_numeric(predio["CODIGO_SIT"], errors="coerce")
     codigos_predio = set(predio["CODIGO_SIT"].dropna().astype(int).unique())
+    print(f"📌 Códigos de predio únicos cargados: {len(codigos_predio)}")
 
     # ---------- 2. Movimientos ---------------------------------------------
+    print("🔍 Buscando archivos de movimientos...")
     mov_files = [f for f in os.listdir(path_mov) if f.endswith(".csv")]
     if not mov_files:
         print("❌ No se encontraron archivos CSV en el directorio de movimientos.")
         return
+    print(f"📁 Archivos de movimientos encontrados: {len(mov_files)}")
 
-    log_coinc = []          # coincidencias por año
-    log_no_match = []       # no-coincidencias por año
-    no_match_acumulado = [] # lista de dataframes por año
+    log_coinc = []
+    log_no_match = []
+    no_match_acumulado = []
 
     for file in mov_files:
         anio = "".join(filter(str.isdigit, file))[:4]
         mov_path = os.path.join(path_mov, file)
+        print(f"\n📄 Procesando archivo de movimientos: {file} (Año detectado: {anio})")
 
         try:
             mov = pd.read_csv(mov_path, dtype=str)
-            print(f"  ▸ {file}  ({mov.shape[0]} filas)")
+            print(f"   ✅ Archivo cargado ({mov.shape[0]} filas)")
         except Exception as e:
-            print(f"    ⚠️  Error leyendo {file}: {e}")
+            print(f"   ⚠️  Error leyendo {file}: {e}")
             continue
 
         if "TIPO_MOVIMIENTO" not in mov.columns:
-            print(f"    ⚠️  {file} omitido: falta columna 'TIPO_MOVIMIENTO'")
+            print(f"   ⚠️  {file} omitido: falta columna 'TIPO_MOVIMIENTO'")
             continue
 
         mov_predio = mov[mov["TIPO_MOVIMIENTO"].str.contains("predio", case=False, na=False)].copy()
+        print(f"   🔢 Registros con 'predio' en TIPO_MOVIMIENTO: {mov_predio.shape[0]}")
+
         mov_predio["CODIGO_SIT_ORIGEN"] = pd.to_numeric(mov_predio["CODIGO_SIT_ORIGEN"], errors="coerce")
         mov_predio["CODIGO_SIT_DESTINO"] = pd.to_numeric(mov_predio["CODIGO_SIT_DESTINO"], errors="coerce")
 
@@ -51,7 +60,6 @@ def check(path_predio, path_mov, path_output):
         origen_ok   = origen  & codigos_predio
         destino_ok  = destino & codigos_predio
 
-        # ---------- 2a. log de coincidencias --------------------------------
         log_coinc.append({
             "AÑO": anio,
             "TOTAL_ORIGEN":           len(origen),
@@ -62,7 +70,9 @@ def check(path_predio, path_mov, path_output):
             "PORCENTAJE_DESTINO":     round(len(destino_ok)/len(destino)*100, 2) if destino else 0
         })
 
-        # ---------- 2b. registros NO coincidentes ---------------------------
+        print(f"   ✅ Coincidencias ORIGEN: {len(origen_ok)} de {len(origen)}")
+        print(f"   ✅ Coincidencias DESTINO: {len(destino_ok)} de {len(destino)}")
+
         sin_origen   = mov_predio[~mov_predio["CODIGO_SIT_ORIGEN"].isin(codigos_predio)].copy()
         sin_destino  = mov_predio[~mov_predio["CODIGO_SIT_DESTINO"].isin(codigos_predio)].copy()
 
@@ -93,23 +103,22 @@ def check(path_predio, path_mov, path_output):
 
         df_anio = pd.concat([df_origen, df_destino], ignore_index=True).drop_duplicates()
         if not df_anio.empty:
-            df_anio["ANIO"] = anio          # nueva columna ANIO
+            df_anio["ANIO"] = anio
             no_match_acumulado.append(df_anio)
             log_no_match.append({"AÑO": anio, "REGISTROS_NO_COINCIDEN": df_anio.shape[0]})
+            print(f"   ⚠️  Registros no coincidentes agregados: {df_anio.shape[0]}")
 
     # ---------- 3. Guardar resultados --------------------------------------
     os.makedirs(path_output, exist_ok=True)
 
-    # 3a. log de coincidencias
     if log_coinc:
         pd.DataFrame(log_coinc).to_csv(
             os.path.join(path_output, "log_coincidencias.csv"),
             index=False,
             encoding="utf-8-sig"
         )
-        print("✅ log_coincidencias.csv guardado")
+        print("📄 Archivo log_coincidencias.csv guardado")
 
-    # 3b. base general de no coincidencias + log
     if no_match_acumulado:
         df_total = pd.concat(no_match_acumulado, ignore_index=True).drop_duplicates()
         df_total.to_csv(
@@ -117,14 +126,14 @@ def check(path_predio, path_mov, path_output):
             index=False,
             encoding="utf-8-sig"
         )
-        # añadir línea TOTAL al log de no coincidencias
         log_no_match.append({"AÑO": "TOTAL", "REGISTROS_NO_COINCIDEN": df_total.shape[0]})
         pd.DataFrame(log_no_match).to_csv(
             os.path.join(path_output, "log_no_coincidencias.csv"),
             index=False,
             encoding="utf-8-sig"
         )
-        print(f"✅ no_match_total.csv guardado ({df_total.shape[0]} registros)")
-        print("✅ log_no_coincidencias.csv guardado")
+        print(f"📄 Archivo new_farms.csv guardado ({df_total.shape[0]} registros)")
+        print("📄 Archivo log_no_coincidencias.csv guardado")
 
+    print("✅ Proceso completado.")
 
