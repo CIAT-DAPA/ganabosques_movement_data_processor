@@ -16,6 +16,16 @@ def mov_quality_control(path_input, path_output):
 
     log_print(logger, "🔷 Iniciando proceso de control de calidad...")
 
+    # Diccionario de reclasificación
+    mapping = {
+        "PREDIO": "FARM",
+        "CONCENTRACION GANADERA": "COLLECTION_CENTER",
+        "PLANTA DE BENEFICIO": "SLAUGHTERHOUSE",
+        "FERIA GANADERA": "CATTLE_FAIR",
+        "EMPRESA": "ENTERPRISE",
+        "MUNICIPIO": "MUNICIPALITY"
+    }
+
     for file in os.listdir(path_input):
         if file.endswith(".csv"):
             year = ''.join(filter(str.isdigit, file))
@@ -33,6 +43,10 @@ def mov_quality_control(path_input, path_output):
                     log_print(logger, f"⚠️ Columnas TIPO_ORIGEN o TIPO_DESTINO no encontradas en {file}", "warning")
                     continue
 
+                # Reclasificación de valores
+                df['TIPO_ORIGEN'] = df['TIPO_ORIGEN'].str.upper().str.strip().replace(mapping)
+                df['TIPO_DESTINO'] = df['TIPO_DESTINO'].str.upper().str.strip().replace(mapping)
+
                 tipos_origen = df['TIPO_ORIGEN'].dropna().unique()
                 tipos_destino = df['TIPO_DESTINO'].dropna().unique()
                 
@@ -40,18 +54,18 @@ def mov_quality_control(path_input, path_output):
 
                 for origen in tipos_origen:
                     for destino in tipos_destino:
-                        combo = f"{origen.strip()} - {destino.strip()}"
+                        combo = f"{origen} - {destino}"
                         df_combo = df[(df['TIPO_ORIGEN'] == origen) & (df['TIPO_DESTINO'] == destino)]
 
                         total_rows = len(df_combo)
 
-                        if origen.strip().upper() == 'PREDIO' and destino.strip().upper() == 'PREDIO':
+                        if origen == 'FARM' and destino == 'FARM':
                             df_valid = df_combo[
                                 df_combo['CODIGO_SIT_ORIGEN'].notna() & df_combo['CODIGO_SIT_DESTINO'].notna()
                             ]
-                        elif origen.strip().upper() == 'PREDIO':
+                        elif origen == 'FARM':
                             df_valid = df_combo[df_combo['CODIGO_SIT_ORIGEN'].notna()]
-                        elif destino.strip().upper() == 'PREDIO':
+                        elif destino == 'FARM':
                             df_valid = df_combo[df_combo['CODIGO_SIT_DESTINO'].notna()]
                         else:
                             df_valid = df_combo.copy()
