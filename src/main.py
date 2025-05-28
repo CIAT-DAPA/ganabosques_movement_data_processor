@@ -1,5 +1,6 @@
 import logging
 import os
+import argparse
 
 from get_data_sigma import get_sigma
 from quality_control_movement import mov_quality_control
@@ -24,12 +25,11 @@ def main():
 
         # Definir rutas base y de salida
         base_path = config['WORKSPACE']
-        raw_input_path = os.path.join(base_path, "movilizacion", "brutos", "content")
-        path_predio = os.path.join(base_path, "farms", "input", "sagari")
+        raw_input_path = config['DATA']
 
-        output_path_get_data = os.path.join(base_path, "movilizacion", "tmp_get_sigma")
-        output_path_quality = os.path.join(base_path, "movilizacion", "tmp_mov_quality_control")
-        output_path_calc_mov = os.path.join(base_path, "movilizacion", "tmp_calc_mov")
+        output_path_get_data = os.path.join(base_path, "movilizacion", "1_tmp_get_sigma")
+        output_path_quality = os.path.join(base_path, "movilizacion", "2_tmp_mov_quality_control")
+        output_path_calc_mov = os.path.join(base_path, "movilizacion", "3_tmp_calc_mov")
         output_path_check = os.path.join(base_path, "movilizacion", "new_farms")
 
         # Paso 1: Obtener datos
@@ -53,15 +53,17 @@ def main():
         # Paso 4: Chequear resultados
         log_print(logger, "Paso 4: chequear resultados...")
         check(
-            path_predio=path_predio,
+            path_predio=raw_input_path,
             path_mov=output_path_calc_mov,
             path_output=output_path_check
         )
-
+        
         log_print(logger, "Proceso finalizado correctamente.")
 
     except Exception as e:
         log_print(logger, f"Error general en el proceso: {e}", level="error")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Pipeline de procesamiento de datos de movilización.")
+    
     main() 

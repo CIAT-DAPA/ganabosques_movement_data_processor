@@ -2,9 +2,13 @@ import os
 import re
 import pandas as pd
 import unidecode
+import logging
+from tools.log_print import log_print 
+
+logger = logging.getLogger("Get Data")
 
 def get_sigma(path_input, path_output):
-    print('Inicio del proceso get_data_sugma...')
+    log_print(logger, 'Inicio del proceso get_data_sugma...')
 
     # Lista de columnas requeridas
     columnas_requeridas = ['ANIO','MES','DIA','CODIGO_SIT_ORIGEN','CODIGO_SIT_DESTINO', 'NUMERO_GUIA', 'ID_UNIDAD_PRODUCTORA_ORIGEN',
@@ -22,7 +26,7 @@ def get_sigma(path_input, path_output):
     os.makedirs(path_output, exist_ok=True)
 
     archivos = [f for f in os.listdir(path_input) if f.endswith('.txt') and re.search(r'\d{4}', f)]
-    print(f"Número de archivos de movilización disponibles: {len(archivos)}")
+    log_print(logger, f"Número de archivos de movilización disponibles: {len(archivos)}")
 
     for i, archivo in enumerate(archivos, start=1):
         ruta_archivo = os.path.join(path_input, archivo)
@@ -60,7 +64,7 @@ def get_sigma(path_input, path_output):
             output_path = os.path.join(path_output, output_filename)
             df_filtrado.to_csv(output_path, index=False, encoding='utf-8')
 
-            print(f"""
+            log_print(logger, f"""
 #####################################################################
 ######################    Brayan Mora   #############################
 ###################### get movilization #############################
@@ -71,7 +75,7 @@ Archivo {i}, cargado y procesado: {archivo}
         except Exception as e:
             log_resultados.append(f"{archivo} ({anio}): ERROR al procesar -> {e}")
 
-    print('Proceso finalizado.')
+    log_print(logger, 'Proceso finalizado.')
     
     # Guardar log
     log_path = os.path.join(path_output, "log_columnas.txt")
