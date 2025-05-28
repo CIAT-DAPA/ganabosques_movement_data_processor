@@ -8,7 +8,7 @@ logger = logging.getLogger("Check farms and enterprise")
 def check(path_predio, path_mov, path_output):
     log_print(logger, "🚀 Iniciando proceso de verificación de movimientos contra predios...")
     
-    # ---------- 1. Predios --------------------------------------------------
+    # ---------- 1. Predios --------------------------------------------------S
     log_print(logger, "🔍 Buscando archivo de predios...")
     predio_file = next((f for f in os.listdir(path_predio) if f.endswith(".csv")), None)
     if predio_file is None:
@@ -52,7 +52,7 @@ def check(path_predio, path_mov, path_output):
             log_print(logger, f"   ⚠️  {file} omitido: falta columna 'TIPO_MOVIMIENTO'", "warning")
             continue
 
-        mov_predio = mov[mov["TIPO_MOVIMIENTO"].str.contains("predio", case=False, na=False)].copy()
+        mov_predio = mov[mov["TIPO_MOVIMIENTO"].str.contains("farm", case=False, na=False)].copy()
         log_print(logger, f"   🔢 Registros con 'predio' en TIPO_MOVIMIENTO: {mov_predio.shape[0]}")
 
         mov_predio["CODIGO_SIT_ORIGEN"] = pd.to_numeric(mov_predio["CODIGO_SIT_ORIGEN"], errors="coerce")
