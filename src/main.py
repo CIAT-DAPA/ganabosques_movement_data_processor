@@ -7,6 +7,7 @@ from quality_control_movement import mov_quality_control
 from calculate_movement import calc_mov
 from check_farms_enterprise import check
 from tools.log_print import log_print
+from save_movement.save_movement import save_movements
 from config import config
 
 
@@ -30,7 +31,8 @@ def main():
         output_path_get_data = os.path.join(base_path, "movilizacion", "1_tmp_get_sigma")
         output_path_quality = os.path.join(base_path, "movilizacion", "2_tmp_mov_quality_control")
         output_path_calc_mov = os.path.join(base_path, "movilizacion", "3_tmp_calc_mov")
-        output_path_check = os.path.join(base_path, "movilizacion", "new_farms")
+        output_path_check = os.path.join(base_path, "movilizacion", "4_new_farms")
+        output_path_save = os.path.join(base_path, "movilizacion", "5_save_movement")
 
         # Paso 1: Obtener datos
         log_print(logger, "Paso 1: Obtener datos...")
@@ -57,6 +59,10 @@ def main():
             path_mov=output_path_calc_mov,
             path_output=output_path_check
         )
+
+        # Paso 5: Chequear resultados
+        log_print(logger, "Paso 5: Guardar movimientos...")
+        save_movements(output_path_calc_mov, output_path_save )
         
         log_print(logger, "Proceso finalizado correctamente.")
 

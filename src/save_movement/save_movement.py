@@ -1,6 +1,5 @@
 
 from mongoengine import connect
-#import mongomock
 import os
 from tqdm import tqdm
 from datetime import datetime
@@ -48,11 +47,10 @@ type_movement_mapping = {
 }
 
 
-def procesar_csv_movimientos(csv_path):
+def procesar_csv_movimientos(csv_path, output_path_save):
 
     # Conexión a MongoDB (ajusta los valores a tu entorno)
     connect(db=config['MONGO_DB_NAME'], host=config['MONGO_URI'])
-    #connect(db=config['MONGO_DB_NAME'], host='mongodb://localhost', mongo_client_class=mongomock.MongoClient)
 
     # Ruta del CSV
     df = pd.read_csv(csv_path, parse_dates=["DATE"], dayfirst=True)
@@ -72,11 +70,6 @@ def procesar_csv_movimientos(csv_path):
             # Tipo origen y destino como enums
             tipo_origen_raw = row["TIPO_ORIGEN"].strip().lower()
             tipo_destino_raw = row["TIPO_DESTINO"].strip().lower()
-
-            if tipo_origen_raw not in type_movement_mapping or tipo_destino_raw not in type_movement_mapping:
-                #print(f"[SALTO] Fila {index} tiene tipo origen o destino inválido: '{tipo_origen_raw}' → '{tipo_destino_raw}'")
-                malos += 1
-                continue
 
             type_origin = TypeMovement[type_movement_mapping[tipo_origen_raw]]
             type_destination = TypeMovement[type_movement_mapping[tipo_destino_raw]]
@@ -186,10 +179,7 @@ def procesar_csv_movimientos(csv_path):
                 movement=movement_list
             )
 
-            #print(movimiento.to_mongo().to_dict())
-
             movimiento.validate()
-            #movimiento.save()
             #print(f"[OK] Movimiento guardado para guía {row['NUMERO_GUIA']}")
             buenos += 1
 
@@ -201,15 +191,19 @@ def procesar_csv_movimientos(csv_path):
     log_print(logger, f"Completado: {buenos} guardados, {malos} con error.")
 
     if errores:
-        os.makedirs("log_save", exist_ok=True)
+        os.makedirs(output_path_save, exist_ok=True)
+        
+        base_name = os.path.splitext(os.path.basename(csv_path))[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        error_file_path = f"log_save/save_movement_{timestamp}.csv"
+        file_name = f"{base_name}_{timestamp}.csv"
+
+        error_file_path = os.path.join(output_path_save, file_name)
         pd.DataFrame(errores).to_csv(error_file_path, index=False)
         log_print(logger, f"Errores guardados en: {error_file_path}")
 
-def save_movements(path_root):
-    archivos = [f for f in os.listdir(path_root) if f.endswith(".csv")]
+def save_movements(input_path_root, output_path_save):
+    archivos = [f for f in os.listdir(input_path_root) if f.endswith(".csv")]
     for archivo in archivos:
-        ruta_completa = os.path.join(path_root, archivo)
+        ruta_completa = os.path.join(input_path_root, archivo)
         log_print(logger, f"Procesando archivo: {archivo}")
-        procesar_csv_movimientos(ruta_completa)
+        procesar_csv_movimientos(ruta_completa, output_path_save)
