@@ -35,18 +35,6 @@ EXCLUDE_COLUMNS = [
     'VEREDA_DESTINO', 'TOTAL_ANIMALES'
 ]
 
-type_movement_mapping = {
-    "predio": "FARM",
-    "planta de beneficio": "SLAUGHTERHOUSE",
-    "planta": "SLAUGHTERHOUSE",
-    "feria ganadera": "CATTLE_FAIR",
-    "concentracion ganadera": "CATTLE_FAIR",
-    "municipio": "MUNICIPALITY",
-    "centro de acopio": "COLLECTION_CENTER",
-    "empresa": "ENTERPRISE"
-}
-
-
 def procesar_csv_movimientos(csv_path, output_path_save):
 
     # Conexión a MongoDB (ajusta los valores a tu entorno)
@@ -68,11 +56,8 @@ def procesar_csv_movimientos(csv_path, output_path_save):
     for index, row in tqdm(df.iterrows(), total=len(df), desc=f"Procesando {os.path.basename(csv_path)}"):
         try:
             # Tipo origen y destino como enums
-            tipo_origen_raw = row["TIPO_ORIGEN"].strip().lower()
-            tipo_destino_raw = row["TIPO_DESTINO"].strip().lower()
-
-            type_origin = TypeMovement[type_movement_mapping[tipo_origen_raw]]
-            type_destination = TypeMovement[type_movement_mapping[tipo_destino_raw]]
+            type_origin = TypeMovement[row["TIPO_ORIGEN"]]
+            type_destination = TypeMovement[row["TIPO_DESTINO"]]
 
             farm_id_origin, farm_id_destination = None, None
             enterprise_id_origin, enterprise_id_destination = None, None
