@@ -164,7 +164,7 @@ def procesar_csv_movimientos(csv_path, output_path_save):
                 movement=movement_list
             )
 
-            movimiento.validate()
+            movimiento.save()
             #print(f"[OK] Movimiento guardado para guía {row['NUMERO_GUIA']}")
             buenos += 1
 
