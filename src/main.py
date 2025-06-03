@@ -1,6 +1,7 @@
 import logging
 import os
 import argparse
+from tqdm import tqdm
 
 from get_data_sigma import get_sigma
 from quality_control_movement import mov_quality_control
@@ -34,36 +35,20 @@ def main():
         output_path_check = os.path.join(base_path, "movilizacion", "4_new_farms")
         output_path_save = os.path.join(base_path, "movilizacion", "5_save_movement")
 
-        # Paso 1: Obtener datos
-        log_print(logger, "Paso 1: Obtener datos...")
-        get_sigma(
-            path_input=raw_input_path,
-            path_output=output_path_get_data
-        )
+        # Lista de pasos con funciones y nombres
+        pasos = [
+            ("Paso 1: Obtener datos", lambda: get_sigma(path_input=raw_input_path, path_output=output_path_get_data)),
+            ("Paso 2: Validación de calidad", lambda: mov_quality_control(path_input=output_path_get_data, path_output=output_path_quality)),
+            ("Paso 3: Calcular movimientos", lambda: calc_mov(path_input=output_path_quality, path_output=output_path_calc_mov)),
+            ("Paso 4: Chequear resultados", lambda: check(path_predio=raw_input_path, path_mov=output_path_calc_mov, path_output=output_path_check)),
+            ("Paso 5: Guardar movimientos", lambda: save_movements(output_path_calc_mov, output_path_save))
+        ]
 
-        # Paso 2: Validación de calidad
-        log_print(logger, "Paso 2: Validación de calidad...")
-        mov_quality_control( path_input=output_path_get_data, path_output=output_path_quality)
+        # Ejecutar pasos con barra de progreso
+        for nombre, funcion in tqdm(pasos, desc="Ejecución pipeline", unit="paso"):
+            log_print(logger, nombre)
+            funcion()
 
-        # Paso 3: Calcular movimientos
-        log_print(logger, "Paso 3: Calcular movimientos...")
-        calc_mov(
-            path_input=output_path_quality,
-            path_output=output_path_calc_mov
-        )
-
-        # Paso 4: Chequear resultados
-        log_print(logger, "Paso 4: chequear resultados...")
-        check(
-            path_predio=raw_input_path,
-            path_mov=output_path_calc_mov,
-            path_output=output_path_check
-        )
-
-        # Paso 5: Chequear resultados
-        log_print(logger, "Paso 5: Guardar movimientos...")
-        save_movements(output_path_calc_mov, output_path_save )
-        
         log_print(logger, "Proceso finalizado correctamente.")
 
     except Exception as e:
@@ -71,5 +56,4 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline de procesamiento de datos de movilización.")
-    
-    main() 
+    main()

@@ -54,7 +54,9 @@ def get_sigma(path_input, path_output):
                     texto = texto.replace('ñ', 'n')
                 return texto
 
-            df_filtrado = df_filtrado.applymap(limpiar_texto)
+            for col in df_filtrado.columns:
+                if df_filtrado[col].dtype == 'object':
+                    df_filtrado[col] = df_filtrado[col].map(limpiar_texto)
 
             # Crear columna DATE
             if {'ANIO', 'MES', 'DIA'}.issubset(df_filtrado.columns):
