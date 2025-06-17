@@ -30,7 +30,6 @@ def check_farms_enterprise(input_data, output_data, info):
     print(f"No encontradas (nuevas): {not_found}")
     print(f"Porcentaje encontrado: {found_pct:.2f}%")
 
-
     farms_output_path = os.path.join(output_data, "farms")
     os.makedirs(farms_output_path, exist_ok=True)
     new_farms.to_csv(os.path.join(farms_output_path, "new_farms.csv"), index=False, encoding="utf-8-sig")
@@ -45,15 +44,12 @@ def check_farms_enterprise(input_data, output_data, info):
     cc_txt = pd.read_csv(os.path.join(info, "COLLECTION_CENTER.txt"), sep="|", encoding="latin1")
     cc_txt.columns = cc_txt.columns.str.strip().str.upper()
 
-    # Reemplazar coma por punto en columnas de latitud/longitud y convertir a float
     if "LATITUD" in cc_txt.columns and "LONGITUD" in cc_txt.columns:
         cc_txt["LATITUD"] = cc_txt["LATITUD"].astype(str).str.replace(",", ".").astype(float)
         cc_txt["LONGITUD"] = cc_txt["LONGITUD"].astype(str).str.replace(",", ".").astype(float)
 
     sh_txt = pd.read_csv(os.path.join(info, "SLAUGHTERHOUSE.txt"), sep="|", encoding="latin1")
     sh_txt.columns = sh_txt.columns.str.strip().str.upper()
-
-    print("Columnas en cc_txt:", cc_txt.columns.tolist())
 
     # Merge para COLLECTION_CENTER
     cc_filter = enterprise_df["TIPO"].str.upper() == "COLLECTION_CENTER"
@@ -63,9 +59,10 @@ def check_farms_enterprise(input_data, output_data, info):
         how="left",
         left_on="PRODUCTIONUNIT_ID",
         right_on="ID_CONCENTRACION"
-    )[
-        enterprise_df.columns.tolist() + ["NOMBRE_CONCENTRACION", "LATITUD", "LONGITUD"]
-    ]
+    )
+    merged_cc = merged_cc.rename(columns={"NOMBRE_CONCENTRACION": "NOMBRE"})
+    merged_cc["NOMBRE"] = merged_cc["NOMBRE"]
+    merged_cc = merged_cc[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
     # Merge para SLAUGHTERHOUSE
     sh_filter = enterprise_df["TIPO"].str.upper() == "SLAUGHTERHOUSE"
@@ -75,26 +72,30 @@ def check_farms_enterprise(input_data, output_data, info):
         how="left",
         left_on="PRODUCTIONUNIT_ID",
         right_on="ID_PLANTA_BENEFICIO"
-    )[
-        enterprise_df.columns.tolist() + ["NOMBRE_PLANTA_BENEFICIO", "LATITUD", "LONGITUD"]
-    ]
+    )
+    merged_sh = merged_sh.rename(columns={"NOMBRE_PLANTA_BENEFICIO": "NOMBRE"})
+    merged_sh["NOMBRE"] = merged_sh["NOMBRE"]
+    merged_sh = merged_sh[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
-    others = enterprise_df[~(cc_filter | sh_filter)]
+    # Otros tipos sin merge
+    others = enterprise_df[~(cc_filter | sh_filter)].copy()
+    others["NOMBRE"] = None
+    others["LATITUD"] = None
+    others["LONGITUD"] = None
+    others = others[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
+
+    # Unir todo
     new_enterprise = pd.concat([merged_cc, merged_sh, others], ignore_index=True)
 
+    # Limpiar columna NOMBRE
+    new_enterprise["NOMBRE"] = new_enterprise["NOMBRE"].astype(str).str.strip()
+    new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].isin(["", "nan", "None"])]
+    new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("---INACTIVA---", case=False, na=False)]
+    new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("^-+$", na=False)]
+
+    # Guardar archivo final
     enterprise_output_path = os.path.join(output_data, "enterprise")
     os.makedirs(enterprise_output_path, exist_ok=True)
-
-    # Guardar todo
     new_enterprise.to_csv(os.path.join(enterprise_output_path, "new_enterprise.csv"), index=False, encoding="utf-8-sig")
 
-    # Guardar CC y SH por separado
-    merged_cc.to_csv(os.path.join(enterprise_output_path, "new_collection_center.csv"), index=False, encoding="utf-8-sig")
-    merged_sh.to_csv(os.path.join(enterprise_output_path, "new_slaughterhouse.csv"), index=False, encoding="utf-8-sig")
-    print("Archivos separados guardados por tipo de empresa.")
-
-
-#input_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\3_tmp_calc_mov"
-#output_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\4_tmp_check_farms_enterprice"
-#info = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\input"
-#check_farms_enterprise(input_data, output_data, info)
+    print("Archivo new_enterprise.csv generado correctamente con columna ADM2 y datos limpiados.")
