@@ -7,24 +7,21 @@ import os
 import pandas as pd
 import logging
 from tools.log_print import log_print
+from config import config
+from ganabosques_orm.enums.typemovement import TypeMovement
+from ganabosques_orm.enums.source import Source
+
 
 logger = logging.getLogger("Quality control movement")
 
-def mov_quality_control(path_input, path_output):
+def mov_quality_control(path_input, path_output, source="SIGMA"):
     os.makedirs(path_output, exist_ok=True)
     log_data = []
 
     log_print(logger, "🔷 Iniciando proceso de control de calidad...")
 
     # Diccionario de reclasificación
-    mapping = {
-        "PREDIO": "FARM",
-        "CONCENTRACION GANADERA": "COLLECTION_CENTER",
-        "PLANTA DE BENEFICIO": "SLAUGHTERHOUSE",
-        "FERIA GANADERA": "CATTLE_FAIR",
-        "EMPRESA": "ENTERPRISE",
-        "MUNICIPIO": "MUNICIPALITY"
-    }
+    mapping = config["MOV"]
 
     for file in os.listdir(path_input):
         if file.endswith(".csv"):
@@ -39,36 +36,48 @@ def mov_quality_control(path_input, path_output):
                 log_print(logger, f"✅ Archivo leído correctamente: {file}")
 
                 # Validar existencia de columnas requeridas
-                if 'TIPO_ORIGEN' not in df.columns or 'TIPO_DESTINO' not in df.columns:
+                type_origin_col = config["origen_destino"][source]["type_origin"]
+                type_dest_col = config["origen_destino"][source]["type_destination"]
+
+                if type_origin_col not in df.columns or type_dest_col not in df.columns:
                     log_print(logger, f"⚠️ Columnas TIPO_ORIGEN o TIPO_DESTINO no encontradas en {file}", "warning")
                     continue
 
                 # Reclasificación de valores
-                df['TIPO_ORIGEN'] = df['TIPO_ORIGEN'].str.upper().str.strip().replace(mapping)
-                df['TIPO_DESTINO'] = df['TIPO_DESTINO'].str.upper().str.strip().replace(mapping)
+                df[type_origin_col] = df[type_origin_col].str.upper().str.strip().replace(mapping)
+                df[type_dest_col] = df[type_dest_col].str.upper().str.strip().replace(mapping)
 
-                tipos_origen = df['TIPO_ORIGEN'].dropna().unique()
-                tipos_destino = df['TIPO_DESTINO'].dropna().unique()
-                
+                tipos_origen = df[type_origin_col].dropna().unique()
+                tipos_destino = df[type_dest_col].dropna().unique()
+
                 df_final = []  # Lista para almacenar los dataframes válidos
 
                 for origen in tipos_origen:
                     for destino in tipos_destino:
                         combo = f"{origen} - {destino}"
-                        df_combo = df[(df['TIPO_ORIGEN'] == origen) & (df['TIPO_DESTINO'] == destino)]
+                        df_combo = df[(df[type_origin_col] == origen) & (df[type_dest_col] == destino)]
 
                         total_rows = len(df_combo)
 
-                        if origen == 'FARM' and destino == 'FARM':
+                        # ✅ Validación según combinación origen/destino
+                        if origen == TypeMovement.FARM.value and destino == TypeMovement.FARM.value:
                             df_valid = df_combo[
-                                df_combo['CODIGO_SIT_ORIGEN'].notna() & df_combo['CODIGO_SIT_DESTINO'].notna()
+                                df_combo[f"{Source.SIT_CODE.value}_ORIGEN"].notna() &
+                                df_combo[f"{Source.SIT_CODE.value}_DESTINO"].notna()
                             ]
-                        elif origen == 'FARM':
-                            df_valid = df_combo[df_combo['CODIGO_SIT_ORIGEN'].notna()]
-                        elif destino == 'FARM':
-                            df_valid = df_combo[df_combo['CODIGO_SIT_DESTINO'].notna()]
+                        elif origen == TypeMovement.FARM.value:
+                            df_valid = df_combo[
+                                df_combo[f"{Source.SIT_CODE.value}_ORIGEN"].notna()
+                            ]
+                        elif destino == TypeMovement.FARM.value:
+                            df_valid = df_combo[
+                                df_combo[f"{Source.SIT_CODE.value}_DESTINO"].notna()
+                            ]
                         else:
-                            df_valid = df_combo.copy()
+                            df_valid = df_combo[
+                                df_combo[f"{Source.PRODUCER_ID.value}_ORIGEN"].notna() &
+                                df_combo[f"{Source.PRODUCER_ID.value}_DESTINO"].notna()
+                            ]
 
                         valid_rows = len(df_valid)
                         removed_rows = total_rows - valid_rows
@@ -95,9 +104,9 @@ def mov_quality_control(path_input, path_output):
                     log_print(logger, f"💾 Archivo depurado guardado como: {output_filename}")
 
             except Exception as e:
-                log_print(logger, f" Error leyendo {file}: {e}", "error")
+                log_print(logger, f"❌ Error leyendo {file}: {e}", "error")
 
     df_log = pd.DataFrame(log_data)
     df_log.to_csv(os.path.join(path_output, "log_mov_quality_control.csv"), index=False, encoding='utf-8-sig')
-    log_print(logger, " Log guardado como: log_mov_quality_control.csv")
-    log_print(logger, " Proceso finalizado.")
+    log_print(logger, "📄 Log guardado como: log_mov_quality_control.csv")
+    log_print(logger, "✅ Proceso finalizado.")

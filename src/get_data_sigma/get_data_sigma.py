@@ -3,30 +3,19 @@ import re
 import pandas as pd
 import unidecode
 import logging
-from tools.log_print import log_print 
+from tools.log_print import log_print
+from config import config
+from ganabosques_orm.enums.source import Source
 
 logger = logging.getLogger("Get Data")
 
 def get_sigma(path_input, path_output):
-    log_print(logger, 'Inicio del proceso get_data_sugma...')
+    log_print(logger, 'Inicio del proceso get_data_sigma...')
 
-    # Lista de columnas requeridas
-    columnas_requeridas = ['ANIO','MES','DIA','CODIGO_SIT_ORIGEN','CODIGO_SIT_DESTINO', 'NUMERO_GUIA',
-        "ID_DEPARTAMENTO_ORIGEN", "DEPARTAMENTO_ORIGEN", "ID_MUNICIPIO_ORIGEN", "MUNICIPIO_ORIGEN", "ID_VEREDA_ORIGEN", "VEREDA_ORIGEN",
-         "ID_DEPARTAMENTO_DESTINO", "DEPARTAMENTO_DESTINO", "ID_MUNICIPIO_DESTINO", "MUNICIPIO_DESTINO", "ID_VEREDA_DESTINO", "VEREDA_DESTINO",                 
-        'ID_UNIDAD_PRODUCTORA_ORIGEN','TIPO_ORIGEN' , 'ID_UNIDAD_PRODUCTORA_DESTINO', 'TIPO_DESTINO', 'ESPECIE', 
-        "'HEMBRAS MENOR DE 3 MESES'", "'HEMBRAS ENTRE 3 A 8 MESES'", "'HEMBRAS DE 8 A 12 MESES'", "'HEMBRAS 1 A 2 AÑOS'", 
-        "'HEMBRAS 2 A 3 AÑOS'", "'HEMBRAS DE 3 A 5 AÑOS'", "'HEMBRAS MAYORES DE 5 AÑOS'", "'MACHOS MENOR DE 3 MESES'", "'MACHOS ENTRE 3 A 8 MESES'", "'MACHOS DE 8 A 12 MESES'", 
-        "'MACHOS DE 1 A 2 AÑOS'", "'MACHOS DE 2 A 3 AÑOS'", "'MACHOS MAYORES A 3 AÑOS'", "'HEMBRA BUFALINA MENOR DE 3 ME", "'HEMBRA BUFALINA DE 3 A 8 MESE", 
-        "'HEMBRA BUFALINA ENTRE 8 Y 12 ", "'HEMBRA BUFALINA DE 1 A 2 AÑO", "'HEMBRA BUFALINA DE 2 A 3 AÑO", "'HEMBRA BUFALINA DE 3 A 5 AÑO", "'HEMBRA BUFALINA MAYOR DE 5 A", 
-        "'MACHOS BUFALINO MENOR DE 3 ME", "'MACHOS BUFALINO DE 3 A 8 MESE", "'MACHOS BUFALINO DE 8 A 12 MES", "'MACHOS BUFALINO DE 1 A 2 AÑO", "'MACHOS BUFALINO DE 2 A 3 AÑO", 
-        "'MACHOS BUFALINO MAYORES A 3 A", "'LACTANTES HASTA 30 DIAS'", "'PRECEBO 31 A 60 DIAS'", "'LEVANTE CEBA 61 A 180 DIAS'", "'HEMBRA REEMPLAZO MENOR DE 8 M", 
-        "'HEMBRA CRIA MAYOR A 8 MESES'", "'MACHO REPRODUCTOR MAYOR DE 6 "]
-
+    columnas_requeridas = config["columnas_requeridas_sigma"]
     log_resultados = []
 
     os.makedirs(path_output, exist_ok=True)
-
     archivos = [f for f in os.listdir(path_input) if f.endswith('.txt') and re.search(r'\d{4}', f)]
     log_print(logger, f"Número de archivos de movilización disponibles: {len(archivos)}")
 
@@ -45,7 +34,7 @@ def get_sigma(path_input, path_output):
                 log_resultados.append(f"{archivo} ({anio}): Todas las columnas requeridas están presentes.")
 
             columnas_filtradas = [col for col in columnas_requeridas if col in columnas_disponibles]
-            df_filtrado = df[columnas_filtradas]
+            df_filtrado = df[columnas_filtradas].copy()
 
             def limpiar_texto(texto):
                 if isinstance(texto, str):
@@ -58,25 +47,53 @@ def get_sigma(path_input, path_output):
                 if df_filtrado[col].dtype == 'object':
                     df_filtrado[col] = df_filtrado[col].map(limpiar_texto)
 
-            # Crear columna DATE
             if {'ANIO', 'MES', 'DIA'}.issubset(df_filtrado.columns):
-                df_filtrado['DATE'] = pd.to_datetime(df_filtrado['ANIO'] + '-' + df_filtrado['MES'] + '-' + df_filtrado['DIA'], errors='coerce')
+                df_filtrado['DATE'] = pd.to_datetime(
+                    df_filtrado['ANIO'] + '-' + df_filtrado['MES'] + '-' + df_filtrado['DIA'],
+                    errors='coerce'
+                )
                 df_filtrado = df_filtrado.drop(columns=['ANIO', 'MES', 'DIA'])
 
-            # Guardar resultado
+            df_filtrado = df_filtrado.rename(columns={
+                'NUMERO_GUIA': "EXT_ID",
+                'ID_DEPARTAMENTO_ORIGEN': "ADM1_ORIGEN",
+                'ID_MUNICIPIO_ORIGEN': "ADM2_ORIGEN",
+                'ID_VEREDA_ORIGEN': "ADM3_ORIGEN",
+                'ID_DEPARTAMENTO_DESTINO': "ADM1_DESTINO",
+                'ID_MUNICIPIO_DESTINO': "ADM2_DESTINO",
+                'ID_VEREDA_DESTINO': "ADM3_DESTINO",
+                'CODIGO_SIT_ORIGEN': f"{Source.SIT_CODE.value}_ORIGEN",
+                'CODIGO_SIT_DESTINO': f"{Source.SIT_CODE.value}_DESTINO",
+                'ID_UNIDAD_PRODUCTORA_ORIGEN': f"{Source.PRODUCER_ID.value}_ORIGEN",
+                'ID_UNIDAD_PRODUCTORA_DESTINO': f"{Source.PRODUCER_ID.value}_DESTINO"
+            })
+
+            # 💡 Normalizar columna ESPECIE
+            if "ESPECIE" in df_filtrado.columns:
+                especie_map = config.get("especie_map", {})
+
+                def corregir_especie(val):
+                    if pd.isna(val):
+                        return val
+                    val = val.lower()
+                    for key, value in especie_map.items():
+                        if key in val:
+                            return value
+                    return val
+
+                df_filtrado["ESPECIE"] = df_filtrado["ESPECIE"].apply(corregir_especie)
+
+            # Guardar archivo procesado
             output_filename = f"{os.path.splitext(archivo)[0]}_filtrado_limpio.csv"
             output_path = os.path.join(path_output, output_filename)
             df_filtrado.to_csv(output_path, index=False, encoding='utf-8')
-
-            log_print(logger, f"""
-Archivo {i}, cargado y procesado: {archivo}
-""")
+            log_print(logger, f"""Archivo {i}, cargado y procesado: {archivo}""")
 
         except Exception as e:
             log_resultados.append(f"{archivo} ({anio}): ERROR al procesar -> {e}")
 
     log_print(logger, 'Proceso finalizado.')
-    
+
     # Guardar log
     log_path = os.path.join(path_output, "log_columnas.txt")
     with open(log_path, "w", encoding='utf-8') as f:
