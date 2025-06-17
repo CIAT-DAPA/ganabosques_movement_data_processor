@@ -14,4 +14,14 @@ six==1.17.0
 tqdm==4.67.1
 tzdata==2025.2
 Unidecode==1.4.0
+certifi==2025.4.26
+charset-normalizer==3.4.2
+geopandas==1.0.1
+idna==3.10
+packaging==25.0
+pyogrio==0.11.0
+pyproj==3.7.1
+requests==2.32.3
+shapely==2.1.1
+urllib3==2.4.0
 git+https://github.com/CIAT-DAPA/ganabosques_orm
