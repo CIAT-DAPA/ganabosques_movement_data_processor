@@ -4,7 +4,12 @@ import pandas as pd
 import logging
 from tools.log_print import log_print 
 from ganabosques_orm.enums.species import Species
+from ganabosques_orm.enums.typemovement import TypeMovement
 from config import config
+from ganabosques_orm.enums.source import Source
+from ganabosques_orm.enums.label import Label
+
+TypeMovement.FARM.value
 
 logger = logging.getLogger("Calculate movement")
 
@@ -56,28 +61,32 @@ def calc_mov(path_input, path_output, source="SIGMA"):
                 df.to_csv(movilizacion_output_file, index=False, encoding='utf-8-sig')
                 log_print(logger, f"Archivo unificado guardado: {movilizacion_output_file}")
                 log_lines.append(f"Archivo procesado: {file} (Registros: {len(df)})")
+                
+                type_origin_col = config["origen_destino"][source]["type_origin"]
+                type_dest_col = config["origen_destino"][source]["type_destination"]
+
 
                 # --- Generar predios ---
-                predios_origen = df[df["TIPO_ORIGEN"] == "FARM"][[ 
-                    "TIPO_ORIGEN", "SIT_CODE_ORIGEN", "PRODUCER_ID_ORIGEN", "ADM3_ORIGEN"
+                predios_origen = df[df[type_origin_col] == TypeMovement.FARM.value][[ 
+                    type_origin_col, f"{Source.SIT_CODE.value}_ORIGEN", f"{Source.PRODUCER_ID.value}_ORIGEN", "ADM3_ORIGEN"
                 ]].rename(columns={
-                    "TIPO_ORIGEN": "TIPO",
-                    "SIT_CODE_ORIGEN": "SIT_CODE",
-                    "PRODUCER_ID_ORIGEN": "PRODUCER_ID",
+                    type_origin_col: "TIPO",
+                    f"{Source.SIT_CODE.value}_ORIGEN": Source.SIT_CODE.value,
+                    f"{Source.PRODUCER_ID.value}_ORIGEN": Source.PRODUCER_ID.value,
                     "ADM3_ORIGEN": "ADM3"
                 })
 
-                predios_destino = df[df["TIPO_DESTINO"] == "FARM"][[ 
-                    "TIPO_DESTINO", "SIT_CODE_DESTINO", "PRODUCER_ID_DESTINO", "ADM3_DESTINO"
+                predios_destino = df[df[type_dest_col] ==  TypeMovement.FARM.value][[ 
+                    type_dest_col, f"{Source.SIT_CODE.value}_DESTINO", f"{Source.PRODUCER_ID.value}_DESTINO", "ADM3_DESTINO"
                 ]].rename(columns={
-                    "TIPO_DESTINO": "TIPO",
-                    "SIT_CODE_DESTINO": "SIT_CODE",
-                    "PRODUCER_ID_DESTINO": "PRODUCER_ID",
+                    type_dest_col: "TIPO",
+                    f"{Source.SIT_CODE.value}_DESTINO": Source.SIT_CODE.value,
+                    f"{Source.PRODUCER_ID.value}_DESTINO": Source.PRODUCER_ID.value,
                     "ADM3_DESTINO": "ADM3"
                 })
 
                 predios = pd.concat([predios_origen, predios_destino], ignore_index=True)
-                predios = predios.drop_duplicates(subset=["SIT_CODE"])
+                predios = predios.drop_duplicates(subset=[Source.SIT_CODE.value])
 
                 farms_output_file = os.path.join(farms_dir, f"farms_data_base_{year_used}.csv")
                 predios.to_csv(farms_output_file, index=False, encoding='utf-8-sig')
@@ -85,24 +94,24 @@ def calc_mov(path_input, path_output, source="SIGMA"):
                 log_lines.append(f"Archivo farms_data_base_{year_used}.csv guardado (Registros únicos: {len(predios)})")
 
                 # --- Generar empresas ---
-                empresas_origen = df[df["TIPO_ORIGEN"] != "FARM"][[ 
-                    "TIPO_ORIGEN", "PRODUCER_ID_ORIGEN", "ADM2_ORIGEN"
+                empresas_origen = df[df[type_origin_col] !=  TypeMovement.FARM.value][[ 
+                    type_origin_col, f"{Source.PRODUCER_ID.value}_ORIGEN", "ADM2_ORIGEN"
                 ]].rename(columns={
-                    "TIPO_ORIGEN": "TIPO",
-                    "PRODUCER_ID_ORIGEN": "PRODUCTIONUNIT_ID",
+                    type_origin_col: "TIPO",
+                    f"{Source.PRODUCER_ID.value}_ORIGEN": Label.PRODUCTIONUNIT_ID.value,
                     "ADM2_ORIGEN": "ADM2"
                 })
 
-                empresas_destino = df[df["TIPO_DESTINO"] != "FARM"][[ 
-                    "TIPO_DESTINO", "PRODUCER_ID_DESTINO", "ADM2_DESTINO"
+                empresas_destino = df[df[type_dest_col] != TypeMovement.FARM.value][[ 
+                    type_dest_col, f"{Source.PRODUCER_ID.value}_DESTINO", "ADM2_DESTINO"
                 ]].rename(columns={
-                    "TIPO_DESTINO": "TIPO",
-                    "PRODUCER_ID_DESTINO": "PRODUCTIONUNIT_ID",
+                    type_dest_col: "TIPO",
+                    f"{Source.PRODUCER_ID.value}_DESTINO": Label.PRODUCTIONUNIT_ID.value,
                     "ADM2_DESTINO": "ADM2"
                 })
 
                 empresas = pd.concat([empresas_origen, empresas_destino], ignore_index=True)
-                empresas = empresas.drop_duplicates(subset=["PRODUCTIONUNIT_ID"])
+                empresas = empresas.drop_duplicates(subset=[Label.PRODUCTIONUNIT_ID.value])
 
                 enterprise_output_file = os.path.join(enterprise_dir, f"enterprise_data_base_{year_used}.csv")
                 empresas.to_csv(enterprise_output_file, index=False, encoding='utf-8-sig')
