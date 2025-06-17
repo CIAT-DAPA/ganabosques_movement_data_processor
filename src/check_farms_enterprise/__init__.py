@@ -1,1 +1,1 @@
-from .check_farms_enterprise import check
+from check_farms_enterprise import check_farms_enterprise

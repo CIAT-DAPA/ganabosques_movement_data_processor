@@ -94,8 +94,7 @@ def check_farms_enterprise(input_data, output_data, info):
     print("Archivos separados guardados por tipo de empresa.")
 
 
-input_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\3_tmp_calc_mov"
-output_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\4_tmp_check_farms_enterprice"
-info = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\input"
-
-check_farms_enterprise(input_data, output_data, info)
+#input_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\3_tmp_calc_mov"
+#output_data = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\test_mov\movilizacion\4_tmp_check_farms_enterprice"
+#info = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\input"
+#check_farms_enterprise(input_data, output_data, info)

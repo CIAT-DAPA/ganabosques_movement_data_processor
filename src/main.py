@@ -2,14 +2,13 @@ import logging
 import os
 import argparse
 from tqdm import tqdm
-
 from get_data_sigma import get_sigma
 from quality_control_movement import mov_quality_control
 from calculate_movement import calc_mov
-from check_farms_enterprise import check
 from tools.log_print import log_print
 from save_movement.save_movement import save_movements
 from config import config
+from check_farms_enterprise.check_farms_enterprise import check_farms_enterprise
 
 
 logging.basicConfig(
@@ -34,13 +33,13 @@ def main():
         output_path_calc_mov = os.path.join(base_path, "movilizacion", "3_tmp_calc_mov")
         output_path_check = os.path.join(base_path, "movilizacion", "4_new_farms")
         output_path_save = os.path.join(base_path, "movilizacion", "5_save_movement")
-
+        info = r"D:\OneDrive - CGIAR\Desktop\ganabosques\test\input"
         # Lista de pasos con funciones y nombres
         pasos = [
             ("Paso 1: Obtener datos", lambda: get_sigma(path_input=raw_input_path, path_output=output_path_get_data)),
             ("Paso 2: Validación de calidad", lambda: mov_quality_control(path_input=output_path_get_data, path_output=output_path_quality)),
             ("Paso 3: Calcular movimientos", lambda: calc_mov(path_input=output_path_quality, path_output=output_path_calc_mov)),
-            ("Paso 4: Chequear resultados", lambda: check(path_predio=raw_input_path, path_mov=output_path_calc_mov, path_output=output_path_check)),
+            ("Paso 4: Chequear resultados", lambda: check_farms_enterprise(info= info, input_data=output_path_calc_mov, output_data=output_path_check)),
             ("Paso 5: Guardar movimientos", lambda: save_movements(output_path_calc_mov, output_path_save))
         ]
 
