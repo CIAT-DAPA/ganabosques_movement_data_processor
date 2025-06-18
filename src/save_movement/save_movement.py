@@ -13,6 +13,7 @@ from ganabosques_orm.collections.movement import Movement
 from ganabosques_orm.auxiliaries.classification import Classification
 from ganabosques_orm.auxiliaries.sourcemovement import SourceMovement
 from ganabosques_orm.enums.typemovement import TypeMovement
+from ganabosques_orm.enums.species import Species
 from ganabosques_orm.enums.source import Source
 from ganabosques_orm.enums.label import Label
 from ganabosques_orm.collections.farm import Farm
@@ -184,8 +185,8 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                 ext_id=row["EXT_ID"],
                 type_origin=type_origin,
                 type_destination=type_destination,
-                source=SourceMovement(id=SIGMA_SOURCE_ID, name=source_pro, log=Log(enable=True, created=datetime.now(), updated=datetime.now())),
-                species=row["ESPECIE"],
+                source=SourceMovement(id=SIGMA_SOURCE_ID, name=source_pro),
+                species=Species(row["ESPECIE"]),
                 farm_id_origin=farm_id_origin,
                 farm_id_destination=farm_id_destination,
                 enterprise_id_origin=enterprise_id_origin,
