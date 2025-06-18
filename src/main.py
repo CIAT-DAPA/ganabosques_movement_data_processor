@@ -8,7 +8,7 @@ from calculate_movement import calc_mov
 from tools.log_print import log_print
 from save_movement.save_movement import save_movements
 from config import config
-from check_farms_enterprise.check_farms_enterprise import check_farms_enterprise
+from check_farms_enterprise import check
 
 # Ruta base de trabajo
 base_path = os.path.join(config['WORKSPACE'], "movilizacion")
@@ -41,7 +41,7 @@ def main(selected_steps=None, source=None):
             ("Paso 1: Obtener datos", lambda: get_sigma(path_input=raw_input_path, path_output=output_path_get_data)),
             ("Paso 2: Validación de calidad", lambda: mov_quality_control(path_input=output_path_get_data, path_output=output_path_quality, source=source)),
             ("Paso 3: Calcular movimientos", lambda: calc_mov(path_input=output_path_quality, path_output=output_path_calc_mov, source=source)),
-            ("Paso 4: Chequear resultados", lambda: check_farms_enterprise(info=info, input_data=output_path_calc_mov, output_data=output_path_check)),
+            ("Paso 4: Chequear resultados", lambda: check(info=info, input_data=output_path_calc_mov, output_data=output_path_check)),
             ("Paso 5: Guardar movimientos", lambda: save_movements(output_path_calc_mov, output_path_save, output_path_check, source))
         ]
 
