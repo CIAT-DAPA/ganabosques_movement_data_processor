@@ -64,8 +64,30 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
     connect(db=config['MONGO_DB_NAME'], host=config['MONGO_URI'])
     path_farm = os.path.join(input_path_farm_enterprise, "farms")
     path_enterprise = os.path.join(input_path_farm_enterprise, "enterprise")
-    save_farm_identifiers(path_farm, output_path_save)
-    save_enterprise_identifiers(path_enterprise, output_path_save)
+    # Procesar farms
+    path_farm = os.path.join(input_path_farm_enterprise, "farms")
+    if os.path.exists(path_farm):
+        archivos_farm = [f for f in os.listdir(path_farm) if f.endswith(".csv")]
+        if archivos_farm:
+            log_print(logger, f"Guardando farms desde archivos CSV...")
+            save_farm_identifiers(path_farm, output_path_save)
+        else:
+            log_print(logger, f"Carpeta de farms vacía, se omite procesamiento.")
+    else:
+        log_print(logger, f"Carpeta de farms no existe, se omite procesamiento.")
+
+    # Procesar enterprises
+    path_enterprise = os.path.join(input_path_farm_enterprise, "enterprise")
+    if os.path.exists(path_enterprise):
+        archivos_enterprise = [f for f in os.listdir(path_enterprise) if f.endswith(".csv")]
+        if archivos_enterprise:
+            log_print(logger, f"Guardando enterprise desde archivos CSV...")
+            save_enterprise_identifiers(path_enterprise, output_path_save)
+        else:
+            log_print(logger, f"Carpeta de enterprise vacía, se omite procesamiento.")
+    else:
+        log_print(logger, f"Carpeta de enterprise no existe, se omite procesamiento.")
+
     path_movements = os.path.join(input_path_root, "movement")
     archivos = [f for f in os.listdir(path_movements) if f.endswith(".csv")]
     for archivo in archivos:
@@ -423,7 +445,6 @@ def process_enterprise_identifiers(csv_path, output_path_save):
                     enterprise.longitud = lon
                     enterprise.adm2_id = adm2_id
                     enterprise.type_enterprise = type_enterprise
-                    print(enterprise.name)
                     cambios = True
 
                 if cambios:
@@ -481,7 +502,7 @@ def save_enterprise_identifiers(csv_folder_path, output_path_save):
     for file in os.listdir(csv_folder_path):
         if file.endswith(".csv"):
             csv_path = os.path.join(csv_folder_path, file)
-            print(f"📄 Procesando archivo: {csv_path}")
+            log_print(logger, f"📄 Procesando archivo: {csv_path}")
             process_enterprise_identifiers(csv_path, output_path_save)
 
 def iguales_con_nan(a, b):
