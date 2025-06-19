@@ -8,11 +8,11 @@ from mongoengine import connect
 from ganabosques_orm.collections.adm3 import Adm3
 from config import config
 
-workspace= config["GEO_WORKSPACE"]
-store= config['GEO_STORE'] 
-url_geoserver= config['URL_GEO']
-user=config['GEO_USER']
-password=config['GEO_PWD']
+workspace = config["GEO_WORKSPACE"]
+store = config['GEO_STORE']
+url_geoserver = config['URL_GEO']
+user = config['GEO_USER']
+password = config['GEO_PWD']
 
 def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, store, url_geoserver, user, password):
     print("\n🌐 Descargando shapefile ADM2 desde GeoServer...")
@@ -42,7 +42,6 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
     print("📋 Columnas disponibles en el shapefile:")
     print(adm2_gdf.columns.tolist())
 
-    # Identificar columna ADM2
     posibles_adm2 = ["adm2", "cod_mpio", "codigo_municipio", "municipio", "nom_mun"]
     adm2_col = next((col for col in adm2_gdf.columns if col.lower() in posibles_adm2), None)
 
@@ -54,10 +53,8 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
     adm2_gdf = adm2_gdf.rename(columns={adm2_col: "ADM2"})
     adm2_gdf["ADM2"] = adm2_gdf["ADM2"].astype(str).str.strip().str.upper()
 
-    # Validar geometrías válidas
     adm2_gdf = adm2_gdf[adm2_gdf.geometry.notnull() & adm2_gdf.is_valid]
 
-    # Calcular centroides
     adm2_proj = adm2_gdf.to_crs("EPSG:3116")
     centroids_proj = adm2_proj.geometry.centroid
     centroids_latlon = gpd.GeoSeries(centroids_proj, crs="EPSG:3116").to_crs("EPSG:4326")
@@ -67,7 +64,6 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
     adm2_coords = adm2_gdf[["ADM2", "LATITUD", "LONGITUD"]].dropna().copy()
     print("📌 ADM2 únicos en shapefile:", adm2_coords["ADM2"].unique()[:5])
 
-    # Preparar new_enterprise
     new_enterprise["ADM2"] = new_enterprise["ADM2"].astype(str).str.strip().str.upper()
     new_enterprise["LATITUD"] = pd.to_numeric(new_enterprise["LATITUD"], errors="coerce")
     new_enterprise["LONGITUD"] = pd.to_numeric(new_enterprise["LONGITUD"], errors="coerce")
@@ -76,7 +72,6 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
     missing_mask = new_enterprise["LATITUD"].isna() | new_enterprise["LONGITUD"].isna()
     print(f"🔍 Registros con coordenadas faltantes: {missing_mask.sum()}")
 
-    # Merge con shapefile para completar coordenadas
     new_enterprise = pd.merge(
         new_enterprise,
         adm2_coords,
@@ -85,15 +80,13 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
         suffixes=("", "_shp")
     )
 
-    # Rellenar LAT y LON faltantes
     new_enterprise["LATITUD"] = new_enterprise["LATITUD"].combine_first(new_enterprise["LATITUD_shp"])
     new_enterprise["LONGITUD"] = new_enterprise["LONGITUD"].combine_first(new_enterprise["LONGITUD_shp"])
     new_enterprise.drop(columns=["LATITUD_shp", "LONGITUD_shp"], inplace=True)
 
     still_missing = new_enterprise["LATITUD"].isna() | new_enterprise["LONGITUD"].isna()
-    print(f"🧭 Coordenadas completadas. Aún faltantes: {still_missing.sum()}")
+    print(f"🧽 Coordenadas completadas. Aún faltantes: {still_missing.sum()}")
 
-    # 🔄 Reintento: buscar coordenadas dentro del mismo ADM2 ya completo
     if still_missing.any():
         print("🔁 Buscando coordenadas dentro del mismo ADM2...")
         completed_coords = new_enterprise[~still_missing][["ADM2", "LATITUD", "LONGITUD"]].drop_duplicates()
@@ -107,7 +100,6 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
 
         new_enterprise[["LATITUD", "LONGITUD"]] = new_enterprise.apply(rellenar_coord, axis=1)
 
-    # 🚮 Eliminar filas que aún no tienen coordenadas
     final_missing = new_enterprise["LATITUD"].isna() | new_enterprise["LONGITUD"].isna()
     if final_missing.any():
         print(f"🗑️ Eliminando {final_missing.sum()} filas sin coordenadas.")
@@ -117,12 +109,9 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
 
     return new_enterprise
 
-
-
 def check(input_data, output_data, info):
     os.makedirs(output_data, exist_ok=True)
 
-    # FARMS
     farms_dir = os.path.join(input_data, "farms")
     farms_files = [os.path.join(farms_dir, f) for f in os.listdir(farms_dir) if f.endswith(".csv")]
     farms_df = pd.concat([pd.read_csv(f) for f in farms_files], ignore_index=True)
@@ -141,14 +130,16 @@ def check(input_data, output_data, info):
 
     farms_output_path = os.path.join(output_data, "farms")
     os.makedirs(farms_output_path, exist_ok=True)
+
+    # ❌ Eliminar duplicados por SIT_CODE
+    new_farms = new_farms.drop_duplicates(subset="SIT_CODE")
+
     new_farms.to_csv(os.path.join(farms_output_path, "new_farms.csv"), index=False, encoding="utf-8-sig")
 
-    # ENTERPRISE
     enterprise_dir = os.path.join(input_data, "enterprise")
     enterprise_files = [os.path.join(enterprise_dir, f) for f in os.listdir(enterprise_dir) if f.endswith(".csv")]
     enterprise_df = pd.concat([pd.read_csv(f) for f in enterprise_files], ignore_index=True)
 
-    # Leer archivos de texto
     cc_txt = pd.read_csv(os.path.join(info, "COLLECTION_CENTER.txt"), sep="|", encoding="latin1")
     cc_txt.columns = cc_txt.columns.str.strip().str.upper()
     if "LATITUD" in cc_txt.columns and "LONGITUD" in cc_txt.columns:
@@ -186,13 +177,16 @@ def check(input_data, output_data, info):
     new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("---INACTIVA---", case=False, na=False)]
     new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("^-+$", na=False)]
 
-    # Completar coordenadas faltantes con shapefile ADM2
     new_enterprise = completar_coordenadas_con_shapefile(
         new_enterprise, output_data, workspace, store, url_geoserver, user, password
     )
 
     enterprise_output_path = os.path.join(output_data, "enterprise")
     os.makedirs(enterprise_output_path, exist_ok=True)
+
+    # ❌ Eliminar duplicados por PRODUCTIONUNIT_ID
+    new_enterprise = new_enterprise.drop_duplicates(subset="PRODUCTIONUNIT_ID")
+
     new_enterprise.to_csv(os.path.join(enterprise_output_path, "new_enterprise.csv"), index=False, encoding="utf-8-sig")
 
     print("✅ Archivo new_enterprise.csv generado correctamente con coordenadas completadas.")
