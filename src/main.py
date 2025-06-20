@@ -9,6 +9,7 @@ from tools.log_print import log_print
 from save_movement.save_movement import save_movements
 from config import config
 from check_farms_enterprise import check
+from ganabosques_orm.enums.farmsource import FarmSource
 
 # Ruta base de trabajo
 base_path = os.path.join(config['WORKSPACE'], "movilizacion")
@@ -55,6 +56,8 @@ def main(selected_steps=None, source=None):
         log_print(logger, f"Error general en el proceso: {e}", level="error")
 
 if __name__ == "__main__":
+    
+    source_valide = [FarmSource.SIGMA.value, FarmSource.SINIGAN.value]
     parser = argparse.ArgumentParser(
         description=(
             "Pipeline de procesamiento de datos de movilización ganadera.\n\n"
@@ -83,7 +86,8 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '-s', '--source', type=str, required=True,
-        help='Código del source para procesar los movimientos.'
+        help='Código del source para procesar los movimientos.',
+        choices=source_valide
     )
 
     args = parser.parse_args()
