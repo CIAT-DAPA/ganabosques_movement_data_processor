@@ -19,6 +19,7 @@ from ganabosques_orm.enums.label import Label
 from ganabosques_orm.collections.farm import Farm
 from ganabosques_orm.collections.enterprise import Enterprise
 from ganabosques_orm.auxiliaries.extidfarm import ExtIdFarm
+from ganabosques_orm.enums.farmsource import FarmSource
 from ganabosques_orm.auxiliaries.extidenterprise import ExtIdEnterprise
 from ganabosques_orm.enums.typeenterprise import TypeEnterprise
 from ganabosques_orm.auxiliaries.log import Log
@@ -71,7 +72,7 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
         archivos_farm = [f for f in os.listdir(path_farm) if f.endswith(".csv")]
         if archivos_farm:
             log_print(logger, f"Guardando farms desde archivos CSV...")
-            save_farm_identifiers(path_farm, output_path_save)
+            save_farm_identifiers(path_farm, output_path_save, source_pro)
         else:
             log_print(logger, f"Carpeta de farms vacía, se omite procesamiento.")
     else:
@@ -83,7 +84,7 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
         archivos_enterprise = [f for f in os.listdir(path_enterprise) if f.endswith(".csv")]
         if archivos_enterprise:
             log_print(logger, f"Guardando enterprise desde archivos CSV...")
-            save_enterprise_identifiers(path_enterprise, output_path_save)
+            save_enterprise_identifiers(path_enterprise, output_path_save, source_pro)
         else:
             log_print(logger, f"Carpeta de enterprise vacía, se omite procesamiento.")
     else:
@@ -262,7 +263,7 @@ def get_enterprise_from_row(row, enterprises_dict, is_origin=True):
                 return enterprise
     return None
 
-def process_farm_identifiers(csv_path, output_path_save):
+def process_farm_identifiers(csv_path, output_path_save, source):
     """
     Procesa un archivo CSV de predios y actualiza o crea las entradas en MongoDB.
 
@@ -289,6 +290,8 @@ def process_farm_identifiers(csv_path, output_path_save):
 
     farm_creados, farm_actualizados, farm_sin_cambios, farm_errores = 0, 0, 0, 0
     errores = []
+    
+    farm_source = FarmSource(source)
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="🧭 Procesando Farms"):
         try:
@@ -326,7 +329,8 @@ def process_farm_identifiers(csv_path, output_path_save):
                 farm = Farm(
                     adm3_id=adm3_id,
                     ext_id=ext_ids,
-                    log=Log(enable=True, created=datetime.now(), updated=datetime.now())
+                    log=Log(enable=True, created=datetime.now(), updated=datetime.now()),
+                    farm_source = farm_source
                 )
                 farm.save()
                 for ext in ext_ids:
@@ -351,7 +355,7 @@ def process_farm_identifiers(csv_path, output_path_save):
     # Log final
     log_print(logger, f"  Finalizado: {farm_creados} creados, {farm_actualizados} actualizados, {farm_sin_cambios} sin cambios, {farm_errores} con error.")
 
-def save_farm_identifiers(csv_folder_path, output_path_save):
+def save_farm_identifiers(csv_folder_path, output_path_save, farm_source):
     """
     Procesa todos los archivos CSV en una carpeta para registrar predios.
 
@@ -366,7 +370,7 @@ def save_farm_identifiers(csv_folder_path, output_path_save):
         if file.endswith(".csv"):
             csv_path = os.path.join(csv_folder_path, file)
             log_print(logger, f"📄 Procesando archivo: {csv_path}")
-            process_farm_identifiers(csv_path, output_path_save)
+            process_farm_identifiers(csv_path, output_path_save, farm_source)
 
 def process_enterprise_identifiers(csv_path, output_path_save):
     """
