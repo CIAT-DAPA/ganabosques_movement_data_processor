@@ -7,6 +7,9 @@ import geopandas as gpd
 from mongoengine import connect
 from ganabosques_orm.collections.adm3 import Adm3
 from config import config
+from ganabosques_orm.enums.source import Source
+from ganabosques_orm.enums.label import Label
+from ganabosques_orm.enums.typemovement import TypeMovement
 
 workspace = config["GEO_WORKSPACE"]
 store = config['GEO_STORE']
@@ -67,7 +70,7 @@ def completar_coordenadas_con_shapefile(new_enterprise, output_data, workspace, 
     new_enterprise["ADM2"] = new_enterprise["ADM2"].astype(str).str.strip().str.upper()
     new_enterprise["LATITUD"] = pd.to_numeric(new_enterprise["LATITUD"], errors="coerce")
     new_enterprise["LONGITUD"] = pd.to_numeric(new_enterprise["LONGITUD"], errors="coerce")
-    new_enterprise["PRODUCTIONUNIT_ID"] = new_enterprise["PRODUCTIONUNIT_ID"].astype(str)
+    new_enterprise[Label.PRODUCTIONUNIT_ID.value] = new_enterprise[Label.PRODUCTIONUNIT_ID.value].astype(str)
 
     missing_mask = new_enterprise["LATITUD"].isna() | new_enterprise["LONGITUD"].isna()
     print(f"🔍 Registros con coordenadas faltantes: {missing_mask.sum()}")
@@ -119,7 +122,7 @@ def check(input_data, output_data, info):
     connect(db=config['MONGO_DB_NAME'], host=config['MONGO_URI'])
     sit_codes = [d.ext_id for d in Adm3.objects() if d.ext_id]
 
-    new_farms = farms_df[~farms_df["SIT_CODE"].isin(sit_codes)]
+    new_farms = farms_df[~farms_df[Source.SIT_CODE.value].isin(sit_codes)]
     total_farms = len(farms_df)
     not_found = len(new_farms)
     found = total_farms - not_found
@@ -132,44 +135,70 @@ def check(input_data, output_data, info):
     os.makedirs(farms_output_path, exist_ok=True)
 
     # ❌ Eliminar duplicados por SIT_CODE
-    new_farms = new_farms.drop_duplicates(subset="SIT_CODE")
+    new_farms = new_farms.drop_duplicates(subset=Source.SIT_CODE.value)
 
     new_farms.to_csv(os.path.join(farms_output_path, "new_farms.csv"), index=False, encoding="utf-8-sig")
+
+    # ✅ Análisis de ADM3 con valor problemático
+    problem_value = "999999999999"
+    farms_problem_mask = farms_df["ADM3"].astype(str) == problem_value
+    farms_with_problem = farms_df[farms_problem_mask]
+
+    # 📄 Guardar CSV con registros problemáticos
+    log_csv_path = os.path.join(farms_output_path, "farms_adm3_issues.csv")
+    farms_with_problem.to_csv(log_csv_path, index=False, encoding="utf-8-sig")
+
+    # 📝 Guardar resumen en bloc de notas
+    total_farms_count = len(farms_df)
+    problem_count = farms_with_problem.shape[0]
+    summary_txt = (
+        f"Resumen de ADM3 en farms:\n"
+        f"Total de registros: {total_farms_count}\n"
+        f"Registros con ADM3 == {problem_value}: {problem_count}\n"
+    )
+
+    summary_txt_path = os.path.join(farms_output_path, "farms_adm3_summary.txt")
+    with open(summary_txt_path, "w", encoding="utf-8") as f:
+        f.write(summary_txt)
+
+    print("🧾 Logs generados:")
+    print(f"- CSV de registros problemáticos: {log_csv_path}")
+    print(f"- Resumen en TXT: {summary_txt_path}")
 
     enterprise_dir = os.path.join(input_data, "enterprise")
     enterprise_files = [os.path.join(enterprise_dir, f) for f in os.listdir(enterprise_dir) if f.endswith(".csv")]
     enterprise_df = pd.concat([pd.read_csv(f) for f in enterprise_files], ignore_index=True)
 
-    cc_txt = pd.read_csv(os.path.join(info, "COLLECTION_CENTER.txt"), sep="|", encoding="latin1")
+    cc_txt = pd.read_csv(os.path.join(info, f"{TypeMovement.COLLECTION_CENTER.value}.txt"), sep="|", encoding="latin1")
     cc_txt.columns = cc_txt.columns.str.strip().str.upper()
     if "LATITUD" in cc_txt.columns and "LONGITUD" in cc_txt.columns:
         cc_txt["LATITUD"] = cc_txt["LATITUD"].astype(str).str.replace(",", ".").astype(float)
         cc_txt["LONGITUD"] = cc_txt["LONGITUD"].astype(str).str.replace(",", ".").astype(float)
 
-    sh_txt = pd.read_csv(os.path.join(info, "SLAUGHTERHOUSE.txt"), sep="|", encoding="latin1")
+    sh_txt = pd.read_csv(os.path.join(info, f"{TypeMovement.SLAUGHTERHOUSE.value}.txt"), sep="|", encoding="latin1")
     sh_txt.columns = sh_txt.columns.str.strip().str.upper()
 
-    cc_filter = enterprise_df["TIPO"].str.upper() == "COLLECTION_CENTER"
+    cc_filter = enterprise_df["TIPO"].str.upper() == TypeMovement.COLLECTION_CENTER.value
     merged_cc = pd.merge(
         enterprise_df[cc_filter], cc_txt,
-        left_on="PRODUCTIONUNIT_ID", right_on="ID_CONCENTRACION", how="left"
+        left_on=Label.PRODUCTIONUNIT_ID.value, right_on="ID_CONCENTRACION", how="left"
     )
     merged_cc = merged_cc.rename(columns={"NOMBRE_CONCENTRACION": "NOMBRE"})
-    merged_cc = merged_cc[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
+    merged_cc = merged_cc[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
     sh_filter = enterprise_df["TIPO"].str.upper() == "SLAUGHTERHOUSE"
     merged_sh = pd.merge(
         enterprise_df[sh_filter], sh_txt,
-        left_on="PRODUCTIONUNIT_ID", right_on="ID_PLANTA_BENEFICIO", how="left"
+        left_on=Label.PRODUCTIONUNIT_ID.value, right_on="ID_PLANTA_BENEFICIO", how="left"
     )
     merged_sh = merged_sh.rename(columns={"NOMBRE_PLANTA_BENEFICIO": "NOMBRE"})
-    merged_sh = merged_sh[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
+    merged_sh = merged_sh[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
     others = enterprise_df[~(cc_filter | sh_filter)].copy()
     others["NOMBRE"] = None
     others["LATITUD"] = None
     others["LONGITUD"] = None
-    others = others[["TIPO", "PRODUCTIONUNIT_ID", "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
+    others = others[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
     new_enterprise = pd.concat([merged_cc, merged_sh, others], ignore_index=True)
     new_enterprise["NOMBRE"] = new_enterprise["NOMBRE"].astype(str).str.strip()
@@ -185,7 +214,7 @@ def check(input_data, output_data, info):
     os.makedirs(enterprise_output_path, exist_ok=True)
 
     # ❌ Eliminar duplicados por PRODUCTIONUNIT_ID
-    new_enterprise = new_enterprise.drop_duplicates(subset="PRODUCTIONUNIT_ID")
+    new_enterprise = new_enterprise.drop_duplicates(subset=Label.PRODUCTIONUNIT_ID.value)
 
     new_enterprise.to_csv(os.path.join(enterprise_output_path, "new_enterprise.csv"), index=False, encoding="utf-8-sig")
 
