@@ -36,9 +36,14 @@ The **Movenment Data Processor** contains 5 modules, which are described below:
    - 📄 Check movement files.
    - 🔍 Identify unmatched records.
    - 🆕 Create new farms with SIT code, department, municipality, and locality information.
-   - 💾 Save in MongoDB the new farms
 
-5. **💾 save_movement:** 
+5. **💾 save_movement:** This module saves livestock movement records and related farm and enterprise data into MongoDB. It performs the following tasks:
+
+    - 🗂️ Loads movement files and entity references (farms and enterprises).
+    - ✅ Updates or creates Farm and Enterprise entries as needed.
+    - 🔗 Matches origin and destination using external identifiers.
+    - 🐮 Creates Movement records with species and classification data.
+    - ❌ Logs failed rows and generates error reports in CSV format for later review.
 
 ## ⚙️ Features
 - 🧩 Modular structure oriented to data frame processing.
@@ -72,53 +77,208 @@ The **Movenment Data Processor** contains 5 modules, which are described below:
  ```bash
 pip install -r requirements.txt
 ```
-## Environment Configuration
-1. Creating a .env file in your project
-2. Setting environment variables directly in your system
+## 🛠️ Environment Configuration
 
-#### Option 1: Using .env file
+The pipeline requires a set of environment variables to be configured before execution:
 
-Create a file named .env with these configurations:
-
- ```bash
-WORKSPACE=D:/OneDrive - CGIAR/Proyectos/ganabosques/data
-MONGO_URI=mongodb://localhost:27017
-MONGO_DB_NAME=ganabosques
-DATA=D:/OneDrive - CGIAR/Proyectos/ganabosques/data/prueba_mov
-```
-#### Option 2: Setting Environment Variables
-- Windows (CMD/PowerShell)
- ```bash
-set WORKSPACE=D:/OneDrive - CGIAR/Proyectos/ganabosques/data
-set MONGO_URI=mongodb://localhost:27017
-set MONGO_DB_NAME=ganabosques
-set DATA=D:/OneDrive - CGIAR/Proyectos/ganabosques/data/prueba_mov
-```
-- Linux/Ubuntu (Terminal)
-export 
-
- ```bash
-export WORKSPACE="D:/OneDrive - CGIAR/Proyectos/ganabosques/data"
-export MONGO_URI="mongodb://localhost:27017"
-export MONGO_DB_NAME="ganabosques"
-export DATA="D:/OneDrive - CGIAR/Proyectos/ganabosques/data/prueba_mov"
-```
-
-#### 💡 Notes 
- - Replace GEO_USER, GEO_PWD with your actual credentials.
- - URL_GEO refers to the URL of the GeoServer instance enabled through Docker.
- - WORKSPACE refers to the local path where the results are to be temporarily stored.
- - GEO_WORKSPACE refers to the name of the GeoServer workspace, which must be created before running the code.
- - MONGO_URI refers to the MongoDB URL enabled through Docker.
- - MONGO_DB_NAME refers to the database where the information is stored within MongoDB.
-
-## ▶️ Running the modules
 ```bash
-Windows CMD o PowerShell
-py deforestation\src\main.py
+# URL of the GeoServer instance
+URL_GEO
 
-Linux, macOS o Git Bash
-python3 deforestation/src/main.py
+# Local path where the results are to be temporarily stored
+WORKSPACE
+
+# Replace GEO_USER with your actual GeoServer username
+GEO_USER
+
+# Replace GEO_PWD with your actual GeoServer password
+GEO_PWD
+
+# Name of the GeoServer workspace, which must be created before running the code
+GEO_WORKSPACE
+
+# Name of the GeoServer data store created for publishing features
+GEO_STORE
+
+# MongoDB connection URI
+MONGO_URI
+
+# Name of the MongoDB database where the information is stored
+MONGO_DB_NAME
+
+# Local path where the raw input movement data is stored
+DATA
 ```
 
 
+
+You can set these variables in one of two ways:
+
+### 📄 Option 1: Using a `.env` file
+
+A `.env.example` file is provided as a reference. To configure:
+
+1. Duplicate the file and rename it to `.env`  
+2. Replace the placeholder values with your actual configuration
+
+Example values:
+
+```env
+URL_GEO=http://localhost:8600/geoserver
+WORKSPACE=/path/to/ganabosques/data/
+GEO_USER=admin
+GEO_PWD=geoserver
+GEO_WORKSPACE=administrative
+GEO_STORE=divipola
+MONGO_URI=mongodb://usuario:contraseña@localhost:27017
+MONGO_DB_NAME=ganabosques
+DATA=/path/to/ganabosques/data/data/movements
+```
+
+
+
+### ⚙️ Option 2: Setting Environment Variables
+
+#### 🪟 Windows (CMD/PowerShell)
+
+```bash
+set URL_GEO=http://localhost:8600/geoserver
+set WORKSPACE=/path/to/ganabosques/data/
+set GEO_USER=admin
+set GEO_PWD=geoserver
+set GEO_WORKSPACE=administrative
+set GEO_STORE=divipola
+set MONGO_URI=mongodb://usuario:contraseña@localhost:27017
+set MONGO_DB_NAME=ganabosques
+set DATA=/path/to/ganabosques/data/data/movements
+```
+
+#### 🐧 Linux / macOS (Terminal)
+
+```bash
+export URL_GEO=http://localhost:8600/geoserver
+export WORKSPACE=/path/to/ganabosques/data/
+export GEO_USER=admin
+export GEO_PWD=geoserver
+export GEO_WORKSPACE=administrative
+export GEO_STORE=divipola
+export MONGO_URI=mongodb://localhost:27017
+export MONGO_DB_NAME=ganabosques
+export DATA=/path/to/ganabosques/data/data/movements
+```
+
+
+
+## 🧱 Project Structure
+
+The project uses a modular design, where each directory under `src/` corresponds to a step in the livestock movement data pipeline.
+
+```bash
+├── src/
+│   ├── get_data_sigma/             # Step 1: Load and parse SIGMA source data
+│   ├── quality_control_movement/   # Step 2: Validate movement coordinate quality
+│   ├── calculate_movement/         # Step 3: Calculate movement patterns
+│   ├── check_farms_enterprise/     # Step 4: Verify new farms or enterprises
+│   ├── save_movement/              # Step 5: Save movements and enterprise data to MongoDB
+│   ├── tools/                      # Utility functions (e.g., logging)
+│   ├── main.py                     # Main pipeline script
+│   ├── config.py                   # Loads environment variables and global constants
+│   └── .env                        # Configuration for database and paths
+├── requirements.txt                # Python dependencies
+└── README.md                       # Documentation
+```
+
+## 🚀 How to Run the Pipeline
+
+You can execute the full pipeline or select specific steps using command-line arguments.
+
+### 🧭 Available Steps
+
+| Step | Description                              |
+|------|------------------------------------------|
+| 1    | Get data from SIGMA                      |
+| 2    | Quality control of coordinates           |
+| 3    | Calculate movement routes                |
+| 4    | Check new farms or enterprises           |
+| 5    | Save movements and metadata to MongoDB   |
+
+### 🧾 Arguments
+
+- `--source` (`-s`) – Required: Code or identifier for the movement data source  
+- `--process` (`-p`) – Optional: Specific steps to execute (e.g., `1 3`)  
+- `--from_step` (`-f`) – Optional: Start execution from a specific step onward
+
+> ❌ Note: You **cannot** use `--process` and `--from_step` at the same time.
+
+
+### 📌 Run all steps:
+
+```bash
+python main.py -s SIGMA
+```
+
+### 🛠 Run specific steps:
+
+```bash
+python main.py -s SIGMA -p 1 3 5
+```
+
+### 🔁 Run from a specific step:
+
+```bash
+python main.py -s SIGMA -f 2
+```
+
+### 📖 Help
+
+```bash
+python main.py -h
+```
+## 📂 Outputs
+
+Output files and logs are stored in the folder defined by the `WORKSPACE` variable, organized in subfolders for each processing step:
+
+| Folder Name                  | Description                                                     |
+|------------------------------|-----------------------------------------------------------------|
+| `1_tmp_get_sigma`            | Raw and parsed movement data from SIGMA                         |
+| `2_tmp_mov_quality_control`  | Validated coordinates and filtered data for quality control     |
+| `3_tmp_calc_mov`             | Calculated movement records based on source logic               |
+| `4_new_farms`                | New farms or enterprises detected and prepared for validation   |
+| `5_save_movement`            | Final data intended for MongoDB storage and error tracking logs |
+
+
+
+### 🗂️ `5_save_movement/`
+
+If errors occur while saving records to the database, the system generates detailed CSV logs with the following format:
+
+```text
+<original_filename>_errores_<YYYYMMDD>_<HHMMSS>.csv
+```
+
+Each error CSV contains:
+
+- The **original row** of the input file that failed  
+- The **row number** in the source CSV  
+- A **description of the error**, such as:
+  - Connectivity issues with MongoDB
+  - Foreign key/reference mismatches
+  - Type validation errors or missing required fields
+
+> 📝 These files are useful for debugging and retrying failed operations after manual correction.
+
+### 📃 Logging
+
+All logs are stored in:
+
+```
+<WORKSPACE>/movilizacion/main_pipeline.log
+```
+
+## 👥 Contributors
+
+This project is developed by the CIAT-DAPA team, with contributions from:
+
+- [stevensotelo](https://github.com/stevensotelo)
+- [bmora-0110](https://github.com/bmora-0110)
+- [victor-993](https://github.com/victor-993)
