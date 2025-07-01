@@ -65,6 +65,10 @@ def calc_mov(path_input, path_output, source="SIGMA"):
                     "ADM1_DESTINO", "ADM2_DESTINO", "ADM3_DESTINO"
                 ]
                 df = safe_convert_int(df, movement_int_cols)
+                for adm_col in ["ADM3_ORIGEN", "ADM3_DESTINO"]:
+                    if adm_col in df.columns:
+                        df[adm_col] = pd.to_numeric(df[adm_col], errors="coerce").fillna(999999999999).astype("int64")
+
 
                 # Guardar movement
                 movement_output_file = os.path.join(movement_dir, f"movement_data_base_{year_used}.csv")
