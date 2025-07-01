@@ -35,7 +35,7 @@ def calc_mov(path_input, path_output, source="SIGMA"):
 
     log_print(logger, "Iniciando el proceso de calcular movilización...")
 
-    especie_mapping = config.get("especie_mapping", {})
+    #especie_mapping = config.get("especie_mapping", {})
 
     for file in os.listdir(path_input):
         if file.endswith(".csv"):
@@ -59,11 +59,14 @@ def calc_mov(path_input, path_output, source="SIGMA"):
 
                 # Convertir columnas a enteros en movement
                 movement_int_cols = [
-                    "SIT_CODE_ORIGEN", "SIT_CODE_DESTINO",
-                    "PRODUCER_ID_ORIGEN", "PRODUCER_ID_DESTINO",
+                    f"{Source.SIT_CODE.value}_ORIGEN", f"{Source.SIT_CODE.value}_DESTINO",
+                    f"{Source.PRODUCER_ID.value}_ORIGEN", f"{Source.PRODUCER_ID.value}_DESTINO",
                     "ADM1_ORIGEN", "ADM2_ORIGEN", "ADM3_ORIGEN",
                     "ADM1_DESTINO", "ADM2_DESTINO", "ADM3_DESTINO"
                 ]
+
+
+
                 df = safe_convert_int(df, movement_int_cols)
                 for adm_col in ["ADM3_ORIGEN", "ADM3_DESTINO"]:
                     if adm_col in df.columns:
@@ -81,26 +84,26 @@ def calc_mov(path_input, path_output, source="SIGMA"):
 
                 # --- Generar farms ---
                 predios_origen = df[df[type_origin_col] == TypeMovement.FARM.value][[
-                    type_origin_col, "SIT_CODE_ORIGEN", "PRODUCER_ID_ORIGEN", "ADM3_ORIGEN"
+                    type_origin_col, f"{Source.SIT_CODE.value}_ORIGEN", f"{Source.PRODUCER_ID.value}_ORIGEN", "ADM3_ORIGEN"
                 ]].rename(columns={
                     type_origin_col: "TIPO",
-                    "SIT_CODE_ORIGEN": "SIT_CODE",
-                    "PRODUCER_ID_ORIGEN": "PRODUCER_ID",
+                    f"{Source.SIT_CODE.value}_ORIGEN": Source.SIT_CODE.value,
+                    f"{Source.PRODUCER_ID.value}_ORIGEN": Source.PRODUCER_ID.value,
                     "ADM3_ORIGEN": "ADM3"
                 })
 
                 predios_destino = df[df[type_dest_col] == TypeMovement.FARM.value][[
-                    type_dest_col, "SIT_CODE_DESTINO", "PRODUCER_ID_DESTINO", "ADM3_DESTINO"
+                    type_dest_col, f"{Source.SIT_CODE.value}_DESTINO", f"{Source.PRODUCER_ID.value}_DESTINO", "ADM3_DESTINO"
                 ]].rename(columns={
                     type_dest_col: "TIPO",
-                    "SIT_CODE_DESTINO": "SIT_CODE",
-                    "PRODUCER_ID_DESTINO": "PRODUCER_ID",
+                    f"{Source.SIT_CODE.value}_DESTINO": Source.SIT_CODE.value,
+                    f"{Source.PRODUCER_ID.value}_DESTINO": Source.PRODUCER_ID.value,
                     "ADM3_DESTINO": "ADM3"
                 })
 
                 predios = pd.concat([predios_origen, predios_destino], ignore_index=True)
-                predios = predios.drop_duplicates(subset=["SIT_CODE"])
-                predios = safe_convert_int(predios, ["SIT_CODE", "PRODUCER_ID", "ADM3"])
+                predios = predios.drop_duplicates(subset=[Source.SIT_CODE.value])
+                predios = safe_convert_int(predios, [Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3"])
 
                 farms_output_file = os.path.join(farms_dir, f"farms_data_base_{year_used}.csv")
                 predios.to_csv(farms_output_file, index=False, encoding='utf-8-sig')
