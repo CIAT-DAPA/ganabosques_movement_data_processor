@@ -11,7 +11,7 @@ import pandas as pd
 from bson import ObjectId
 from ganabosques_orm.collections.movement import Movement
 from ganabosques_orm.auxiliaries.classification import Classification
-from ganabosques_orm.auxiliaries.sourcemovement import SourceMovement
+from ganabosques_orm.collections.sourcemovement import SourceMovement
 from ganabosques_orm.enums.typemovement import TypeMovement
 from ganabosques_orm.enums.species import Species
 from ganabosques_orm.enums.source import Source
@@ -29,9 +29,6 @@ from ganabosques_orm.collections.adm2 import Adm2
 
 # Configuración del logger de este script
 logger = logging.getLogger("Save Movement")
-
-# ObjectId fijo para "SIGMA"
-SIGMA_SOURCE_ID = ObjectId("5f5e1c5f5c5a5b5c5d5e5f5f")
 
 # Columnas que no son tipos de ganado
 
@@ -84,7 +81,7 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
         archivos_enterprise = [f for f in os.listdir(path_enterprise) if f.endswith(".csv")]
         if archivos_enterprise:
             log_print(logger, f"Guardando enterprise desde archivos CSV...")
-            save_enterprise_identifiers(path_enterprise, output_path_save, source_pro)
+            save_enterprise_identifiers(path_enterprise, output_path_save)
         else:
             log_print(logger, f"Carpeta de enterprise vacía, se omite procesamiento.")
     else:
@@ -119,6 +116,19 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
 
     errores = []
     buenos, malos, existentes  = 0, 0, 0
+    
+    # cargar sourcemovement
+    
+    # Buscar o crear el SourceMovement correspondiente
+    sourcemovement = SourceMovement.objects(name=source_pro).first()
+
+    if not sourcemovement:
+        sourcemovement = SourceMovement(name=source_pro, 
+                    log=Log(enable=True, created=datetime.now(), updated=datetime.now()))
+        sourcemovement.save()
+        log_print(logger, f"SourceMovement creado: {source_pro}")
+    else:
+        log_print(logger, f"SourceMovement existente encontrado: {source_pro}")
 
     # Precargar Farms
     farms_dict = {}
@@ -186,7 +196,7 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                 ext_id=row["EXT_ID"],
                 type_origin=type_origin,
                 type_destination=type_destination,
-                source=SourceMovement(id=SIGMA_SOURCE_ID, name=source_pro),
+                source=sourcemovement,
                 species=Species(row["ESPECIE"]),
                 farm_id_origin=farm_id_origin,
                 farm_id_destination=farm_id_destination,
