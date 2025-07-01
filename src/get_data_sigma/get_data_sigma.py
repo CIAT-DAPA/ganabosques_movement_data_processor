@@ -24,7 +24,9 @@ def get_sigma(path_input, path_output):
         anio = re.search(r'\d{4}', archivo).group()
 
         try:
-            df = pd.read_csv(ruta_archivo, sep='|', encoding='latin1', dtype=str)
+            df = pd.read_csv(ruta_archivo, sep='|', encoding='utf-8', dtype=str)
+            #print(df.columns.tolist())
+
             columnas_disponibles = df.columns.tolist()
             columnas_faltantes = [col for col in columnas_requeridas if col not in columnas_disponibles]
 
