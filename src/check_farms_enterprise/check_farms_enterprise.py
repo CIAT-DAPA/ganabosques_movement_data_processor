@@ -186,7 +186,7 @@ def check(input_data, output_data, info):
     merged_cc = merged_cc.rename(columns={"NOMBRE_CONCENTRACION": "NOMBRE"})
     merged_cc = merged_cc[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
 
-    sh_filter = enterprise_df["TIPO"].str.upper() == "SLAUGHTERHOUSE"
+    sh_filter = enterprise_df["TIPO"].str.upper() == TypeMovement.SLAUGHTERHOUSE.value
     merged_sh = pd.merge(
         enterprise_df[sh_filter], sh_txt,
         left_on=Label.PRODUCTIONUNIT_ID.value, right_on="ID_PLANTA_BENEFICIO", how="left"
