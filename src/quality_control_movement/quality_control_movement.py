@@ -100,7 +100,7 @@ def mov_quality_control(path_input, path_output, source="SIGMA"):
                 if df_final:
                     df_concat = pd.concat(df_final, ignore_index=True)
                     output_filename = f"{base_filename}_depurado.csv"
-                    df_concat.to_csv(os.path.join(path_output, output_filename), index=False, encoding='utf-8-sig')
+                    df_concat.to_csv(os.path.join(path_output, output_filename), index=False, encoding='latin1')
                     log_print(logger, f"💾 Archivo depurado guardado como: {output_filename}")
 
             except Exception as e:
