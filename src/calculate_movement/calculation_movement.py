@@ -115,7 +115,7 @@ def calc_mov(path_input, path_output, source="SIGMA"):
                     type_origin_col, "PRODUCER_ID_ORIGEN", "ADM2_ORIGEN"
                 ]].rename(columns={
                     type_origin_col: "TIPO",
-                    "PRODUCER_ID_ORIGEN": "PRODUCTIONUNIT_ID",
+                    "PRODUCER_ID_ORIGEN": Label.PRODUCTIONUNIT_ID.value,
                     "ADM2_ORIGEN": "ADM2"
                 })
 
@@ -123,13 +123,13 @@ def calc_mov(path_input, path_output, source="SIGMA"):
                     type_dest_col, "PRODUCER_ID_DESTINO", "ADM2_DESTINO"
                 ]].rename(columns={
                     type_dest_col: "TIPO",
-                    "PRODUCER_ID_DESTINO": "PRODUCTIONUNIT_ID",
+                    "PRODUCER_ID_DESTINO": Label.PRODUCTIONUNIT_ID.value,
                     "ADM2_DESTINO": "ADM2"
                 })
 
                 empresas = pd.concat([empresas_origen, empresas_destino], ignore_index=True)
-                empresas = empresas.drop_duplicates(subset=["PRODUCTIONUNIT_ID"])
-                empresas = safe_convert_int(empresas, ["PRODUCTIONUNIT_ID", "ADM2"])
+                empresas = empresas.drop_duplicates(subset=[Label.PRODUCTIONUNIT_ID.value])
+                empresas = safe_convert_int(empresas, [Label.PRODUCTIONUNIT_ID.value, "ADM2"])
 
                 enterprise_output_file = os.path.join(enterprise_dir, f"enterprise_data_base_{year_used}.csv")
                 empresas.to_csv(enterprise_output_file, index=False, encoding='utf-8-sig')
