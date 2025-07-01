@@ -66,7 +66,7 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
     # Procesar farms
     path_farm = os.path.join(input_path_farm_enterprise, "farms")
     if os.path.exists(path_farm):
-        archivos_farm = [f for f in os.listdir(path_farm) if f.endswith(".csv")]
+        archivos_farm = [f for f in os.listdir(path_farm) if f.endswith(".csv") and "new_farms" in f]
         if archivos_farm:
             log_print(logger, f"Guardando farms desde archivos CSV...")
             save_farm_identifiers(path_farm, output_path_save, source_pro)
