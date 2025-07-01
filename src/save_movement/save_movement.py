@@ -377,7 +377,7 @@ def save_farm_identifiers(csv_folder_path, output_path_save, farm_source):
         None
     """
     for file in os.listdir(csv_folder_path):
-        if file.endswith(".csv"):
+        if file.endswith(".csv") and "new_farms" in file:
             csv_path = os.path.join(csv_folder_path, file)
             log_print(logger, f"📄 Procesando archivo: {csv_path}")
             process_farm_identifiers(csv_path, output_path_save, farm_source)
