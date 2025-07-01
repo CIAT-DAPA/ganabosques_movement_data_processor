@@ -8,7 +8,6 @@ import logging
 from config import config
 
 import pandas as pd
-from bson import ObjectId
 from ganabosques_orm.collections.movement import Movement
 from ganabosques_orm.auxiliaries.classification import Classification
 from ganabosques_orm.collections.sourcemovement import SourceMovement
@@ -196,7 +195,7 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                 ext_id=row["EXT_ID"],
                 type_origin=type_origin,
                 type_destination=type_destination,
-                source=sourcemovement,
+                source_movement=sourcemovement,
                 species=Species(row["ESPECIE"]),
                 farm_id_origin=farm_id_origin,
                 farm_id_destination=farm_id_destination,
