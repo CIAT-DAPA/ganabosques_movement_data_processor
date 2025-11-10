@@ -6,8 +6,12 @@ from datetime import datetime
 from collections import defaultdict
 from tqdm import tqdm
 from mongoengine import connect
+from pymongo.errors import BulkWriteError
 
-from tools.log_print import log_print
+
+def log_print(logger, message: str):
+    logger.info(message)
+    print(message, flush=True)
 import logging
 from config import config
 
@@ -34,6 +38,10 @@ from ganabosques_orm.collections.adm2 import Adm2
 # Logger
 logger = logging.getLogger("Save Movement")
 
+# ---------------------------
+# Parámetros - Batching
+# ---------------------------
+BATCH_SIZE = 5000  # ajusta según memoria y capacidad de tu MongoDB (100-2000 típico)
 
 # ---------------------------
 # Utilidades de normalización
@@ -529,7 +537,7 @@ def _save_enterprise_identifiers(csv_folder_path: str, output_path_save: str):
 
 
 # -----------------------------
-# Núcleo: guardar movimientos
+# Núcleo: guardar movimientos (con batching)
 # -----------------------------
 def _detect_ganado_columns(df: pd.DataFrame):
     candidatas = [c for c in df.columns if c not in EXCLUDE_COLUMNS]
@@ -541,12 +549,51 @@ def _detect_ganado_columns(df: pd.DataFrame):
     return [c for c in candidatas if _is_numeric_like(df[c])]
 
 
+def _flush_batch_movements(batch_docs, movements_ext_ids, counters, collection):
+    """
+    Inserta batch_docs (lista de dicts) usando collection.insert_many(..., ordered=False).
+    Movements_ext_ids: set que se actualiza con ext_ids insertados.
+    counters: dict con claves 'buenos', 'malos' que se actualizan en sitio.
+    Devuelve número de insertados exitosos.
+    """
+    if not batch_docs:
+        return 0
+    try:
+        res = collection.insert_many(batch_docs, ordered=False)
+        inserted_count = len(res.inserted_ids) if res.inserted_ids is not None else 0
+        for doc in batch_docs:
+            movements_ext_ids.add(doc.get("ext_id"))
+        counters['buenos'] += inserted_count
+        return inserted_count
+    except BulkWriteError as bwe:
+        details = bwe.details or {}
+        write_errors = details.get("writeErrors", [])
+        failed_exts = set()
+        for we in write_errors:
+            op = we.get("op", {})
+            failed_ext = op.get("ext_id")
+            if failed_ext:
+                failed_exts.add(str(failed_ext))
+        total = len(batch_docs)
+        failed = len(failed_exts)
+        success = total - failed
+        for doc in batch_docs:
+            ext = doc.get("ext_id")
+            if ext and str(ext) not in failed_exts:
+                movements_ext_ids.add(ext)
+        counters['buenos'] += success
+        counters['malos'] += failed
+        logger.debug("BulkWriteError writeErrors sample: %s", write_errors[:5])
+        return success
+    except Exception as e:
+        counters['malos'] += len(batch_docs)
+        logger.exception("Error inesperado en bulk insert: %s", e)
+        return 0
+
+
 def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
     """
-    Procesa un archivo CSV de movimientos:
-    - Crea FARM on-the-fly si no existe (usando ADM3 del lado correspondiente).
-    - Guarda movimientos idempotentes por EXT_ID.
-    - Emite resumen por año y CSV de errores.
+    Procesa un archivo CSV de movimientos con inserción por lotes para acelerar.
     """
     df = pd.read_csv(csv_path, parse_dates=["DATE"], dayfirst=True)
     df.columns = (df.columns
@@ -573,6 +620,9 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
     enterprises_dict = _build_enterprises_dict()
     movements_ext_ids = set(Movement.objects.only("ext_id").scalar("ext_id"))
 
+    # coleccion raw de pymongo para bulk insert
+    collection = Movement._get_collection()
+
     # resumen por año
     total_rows_by_year = defaultdict(int)
     matched_rows_by_year = defaultdict(int)
@@ -581,7 +631,11 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
     error_rows_by_year = defaultdict(int)
 
     errores = []
-    buenos, malos, existentes = 0, 0, 0
+    counters = {'buenos': 0, 'malos': 0, 'existentes': 0}
+    batch = []
+    batch_ext_ids = set()
+
+    last_year_key = "sin_fecha"
 
     for index, row in tqdm(df.iterrows(), total=len(df), desc=f"Procesando {os.path.basename(csv_path)}"):
         try:
@@ -589,33 +643,46 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                 year_key = int(row["DATE"].year)
             except Exception:
                 year_key = "sin_fecha"
+            last_year_key = year_key
             total_rows_by_year[year_key] += 1
 
             ext_id = _to_clean_str(row.get("EXT_ID"))
             if not ext_id:
                 raise ValueError("EXT_ID vacío")
 
+            # si ya existe en DB (cache) o en batch -> skip
+            if ext_id in movements_ext_ids or ext_id in batch_ext_ids:
+                counters['existentes'] += 1
+                existing_rows_by_year[year_key] += 1
+                continue
+
             type_origin = _map_enum(TypeMovement, row.get("TIPO_ORIGEN"), "TIPO_ORIGEN")
             type_destination = _map_enum(TypeMovement, row.get("TIPO_DESTINO"), "TIPO_DESTINO")
             species = _map_enum(Species, row.get("ESPECIE"), "ESPECIE")
 
+            # resolver farm/enterprise
             farm_id_origin = farm_id_destination = None
             enterprise_id_origin = enterprise_id_destination = None
 
             if type_origin == TypeMovement.FARM:
-                farm_id_origin = _get_or_create_farm_from_row(row, farms_dict, True, source_pro)
+                farm_obj = _get_or_create_farm_from_row(row, farms_dict, True, source_pro)
+                farm_id_origin = farm_obj.id if farm_obj else None
             else:
-                enterprise_id_origin = _get_enterprise_from_row(row, enterprises_dict, True)
-                if not enterprise_id_origin:
+                ent_obj = _get_enterprise_from_row(row, enterprises_dict, True)
+                if not ent_obj:
                     raise ValueError("No se encontró Enterprise origen")
+                enterprise_id_origin = ent_obj.id
 
             if type_destination == TypeMovement.FARM:
-                farm_id_destination = _get_or_create_farm_from_row(row, farms_dict, False, source_pro)
+                farm_obj2 = _get_or_create_farm_from_row(row, farms_dict, False, source_pro)
+                farm_id_destination = farm_obj2.id if farm_obj2 else None
             else:
-                enterprise_id_destination = _get_enterprise_from_row(row, enterprises_dict, False)
-                if not enterprise_id_destination:
+                ent_obj2 = _get_enterprise_from_row(row, enterprises_dict, False)
+                if not ent_obj2:
                     raise ValueError("No se encontró Enterprise destino")
+                enterprise_id_destination = ent_obj2.id
 
+            # construir lista de clasificadores como dicts
             movement_list = []
             for col in ganado_columns:
                 val = row[col]
@@ -623,42 +690,56 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                     amount = _safe_int_amount(val)
                 except ValueError:
                     continue
-                movement_list.append(Classification(label=col, amount=amount))
+                movement_list.append({"label": col, "amount": amount})
 
             if not movement_list:
                 raise ValueError("Fila sin cantidades de ganado válidas")
 
             matched_rows_by_year[year_key] += 1
 
-            if ext_id in movements_ext_ids:
-                existentes += 1
-                existing_rows_by_year[year_key] += 1
-                continue
+            # Construir documento "raw" para insertar
+            doc = {
+                "date": row["DATE"],
+                "ext_id": ext_id,
+                "type_origin": type_origin.value if hasattr(type_origin, "value") else str(type_origin),
+                "type_destination": type_destination.value if hasattr(type_destination, "value") else str(type_destination),
+                "source_movement": sourcemovement.id if sourcemovement else None,
+                "species": species.value if hasattr(species, "value") else str(species),
+                "farm_id_origin": farm_id_origin,
+                "farm_id_destination": farm_id_destination,
+                "enterprise_id_origin": enterprise_id_origin,
+                "enterprise_id_destination": enterprise_id_destination,
+                "movement": movement_list,
+                "log": {"enable": True, "created": datetime.now(), "updated": datetime.now()}
+            }
 
-            movimiento = Movement(
-                date=row["DATE"],
-                ext_id=ext_id,
-                type_origin=type_origin,
-                type_destination=type_destination,
-                source_movement=sourcemovement,
-                species=species,
-                farm_id_origin=farm_id_origin,
-                farm_id_destination=farm_id_destination,
-                enterprise_id_origin=enterprise_id_origin,
-                enterprise_id_destination=enterprise_id_destination,
-                movement=movement_list
-            )
-            movimiento.save()
-            buenos += 1
-            inserted_rows_by_year[year_key] += 1
-            movements_ext_ids.add(ext_id)
+            batch.append(doc)
+            batch_ext_ids.add(ext_id)
+
+            # Si alcanzamos el tamaño de lote, hacemos flush
+            if len(batch) >= BATCH_SIZE:
+                success = _flush_batch_movements(batch, movements_ext_ids, counters, collection)
+                # distribuimos los éxitos al año actual (aproximado)
+                inserted_rows_by_year[year_key] += success
+                batch = []
+                batch_ext_ids = set()
 
         except Exception as e:
             errores.append({**row.to_dict(), "fila_original": index, "error": str(e)})
-            malos += 1
+            counters['malos'] += 1
             error_rows_by_year[year_key] += 1
 
-    log_print(logger, f"Completado: {buenos} guardados, {existentes} ya existentes, {malos} con error.")
+    # insertar resto del batch
+    if batch:
+        success = _flush_batch_movements(batch, movements_ext_ids, counters, collection)
+        inserted_rows_by_year[last_year_key] += success
+
+    # actualizar métricas finales
+    buenos = counters['buenos']
+    malos = counters['malos']
+    existentes = counters['existentes']
+
+    log_print(logger, f"Completado: {buenos} guardados (batch), {existentes} ya existentes, {malos} con error.")
 
     if errores:
         os.makedirs(output_path_save, exist_ok=True)
@@ -680,9 +761,9 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
         summary_rows.append({
             "year": y,
             "total_rows": total_rows_by_year.get(y, 0),
-            "matched_rows": matched_rows_by_year.get(y, 0),    # “deberían guardarse”
-            "inserted_rows": inserted_rows_by_year.get(y, 0),  # guardados nuevos
-            "existing_rows": existing_rows_by_year.get(y, 0),  # coincidían pero ya existían
+            "matched_rows": matched_rows_by_year.get(y, 0),
+            "inserted_rows": inserted_rows_by_year.get(y, 0),
+            "existing_rows": existing_rows_by_year.get(y, 0),
             "error_rows": error_rows_by_year.get(y, 0)
         })
 
