@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from ganabosques_orm.enums.species import Species
+from ganabosques_orm.enums.typemovement import TypeMovement
 
 load_dotenv()
 
@@ -58,11 +59,11 @@ config["columnas_requeridas_sigma"]= [
 ]
 
 config["MOV"]= {
-    'PREDIO': "FARM",
-    'CONCENTRACION GANADERA': "COLLECTION_CENTER",
-    'PLANTA DE BENEFICIO': "SLAUGHTERHOUSE",
-    'FERIA GANADERA': "CATTLE_FAIR",
-    'EMPRESA' : "ENTERPRISE"
+    'PREDIO': TypeMovement.FARM.value,
+    'CONCENTRACION GANADERA': TypeMovement.COLLECTION_CENTER.value,
+    'PLANTA DE BENEFICIO': TypeMovement.SLAUGHTERHOUSE.value,
+    'FERIA GANADERA': TypeMovement.CATTLE_FAIR.value,
+    'EMPRESA' : TypeMovement.ENTERPRISE.value
 }
 
 config["origen_destino"]={
