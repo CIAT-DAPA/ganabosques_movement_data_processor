@@ -7,13 +7,12 @@ from collections import defaultdict
 from tqdm import tqdm
 from mongoengine import connect
 from pymongo.errors import BulkWriteError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
-def log_print(logger, message: str):
-    logger.info(message)
-    print(message, flush=True)
 import logging
 from config import config
+from tools.data_utils import to_clean_str, to_float_series
+from mongoengine.connection import get_db
 
 # ORM y enums
 from ganabosques_orm.collections.movement import Movement
@@ -29,43 +28,17 @@ from ganabosques_orm.auxiliaries.extidfarm import ExtIdFarm
 from ganabosques_orm.enums.farmsource import FarmSource
 from ganabosques_orm.auxiliaries.log import Log
 from ganabosques_orm.collections.adm3 import Adm3
-
-# >>> añadidos para enterprise
 from ganabosques_orm.auxiliaries.extidenterprise import ExtIdEnterprise
 from ganabosques_orm.enums.typeenterprise import TypeEnterprise
 from ganabosques_orm.collections.adm2 import Adm2
 
 # Logger
+def log_print(logger, message: str):
+    logger.info(message)
+    print(message, flush=True)
 logger = logging.getLogger("Save Movement")
 
-# ---------------------------
-# Parámetros - Batching
-# ---------------------------
-BATCH_SIZE = 5000  # ajusta según memoria y capacidad de tu MongoDB (100-2000 típico)
-
-# ---------------------------
-# Utilidades de normalización
-# ---------------------------
-def _to_clean_str(val) -> str:
-    """Normaliza IDs a string comparable (quita espacios, .0, notación científica, NaNs)."""
-    if val is None:
-        return ""
-    s = str(val).strip()
-    if s.lower() in ("nan", "none", "null"):
-        return ""
-    if s.endswith(".0"):
-        try:
-            s = str(int(float(s)))
-        except Exception:
-            pass
-    try:
-        if "e" in s.lower():
-            n = float(s)
-            s = str(int(n)) if n.is_integer() else str(n)
-    except Exception:
-        pass
-    return s
-
+BATCH_SIZE = 10000  # Parámetros - Batching
 
 def _safe_int_amount(x) -> int:
     """Convierte cantidades de ganado a int de forma robusta. Ignora vacíos/negativos."""
@@ -75,7 +48,6 @@ def _safe_int_amount(x) -> int:
     if v < 0:
         raise ValueError("negative")
     return v
-
 
 def _map_enum(enum_cls, raw, field_name):
     """Mapeo tolerante de enums: upper/strip; si falla, levanta error claro."""
@@ -90,7 +62,6 @@ def _map_enum(enum_cls, raw, field_name):
         except Exception:
             raise ValueError(f"{field_name} inválido: '{raw}'")
 
-
 def iguales_con_nan(a, b):
     if a is None and b is None:
         return True
@@ -98,32 +69,6 @@ def iguales_con_nan(a, b):
         return True
     return a == b
 
-
-def _to_float_series(col: pd.Series) -> pd.Series:
-    """Convierte una serie a float (acepta coma/punto, miles, vacíos)."""
-    s = col.astype(str).str.strip().str.replace("\u00A0", "", regex=False)
-    s = s.replace({"": pd.NA, "-": pd.NA, "—": pd.NA, "--": pd.NA,
-                   "nan": pd.NA, "NaN": pd.NA, "NONE": pd.NA, "None": pd.NA, "null": pd.NA, "NULL": pd.NA})
-
-    def _norm(x: str) -> str:
-        if x is pd.NA or x is None:
-            return x
-        x = str(x).replace(" ", "").replace("'", "")
-        if ("," in x) and ("." not in x):
-            x = x.replace(",", ".")
-        elif ("," in x) and ("." in x):
-            if x.rfind(",") > x.rfind("."):
-                x = x.replace(".", "").replace(",", ".")
-            else:
-                x = x.replace(",", "")
-        return x
-
-    return pd.to_numeric(s.map(_norm), errors="coerce")
-
-
-# --------------------------------
-# Columnas a excluir (no ganado)
-# --------------------------------
 EXCLUDE_COLUMNS = []
 for source in Source:
     for sufijo in ["ORIGEN", "DESTINO"]:
@@ -136,17 +81,14 @@ EXCLUDE_COLUMNS += [
     "NUMERO_GUIA", "NOMBRE", "NOMBRE_ORIGEN", "NOMBRE_DESTINO"
 ]
 
-
-# -----------------------------
-# Diccionarios precargados
-# -----------------------------
 def _build_farms_dict():
     """
     Construye dict tolerante: clave 'SIT_CODE:<code>' o 'PRODUCER_ID:<code>' (ambos normalizados).
-    Soporta que ext_id venga como objeto o dict; source como enum o string.
+    Carga TODOS los campos necesarios para evitar queries adicionales.
     """
     d = {}
-    for farm in Farm.objects.only("id", "ext_id"):
+    
+    for farm in Farm.objects.all():
         for ext in farm.ext_id:
             try:
                 src = getattr(ext, "source", None)
@@ -155,20 +97,23 @@ def _build_farms_dict():
                     src = ext.get("source")
                     code = ext.get("ext_code")
                 src_val = src.value if hasattr(src, "value") else str(src)
-                key = f"{src_val}:{_to_clean_str(code)}"
+                key = f"{src_val}:{to_clean_str(code)}"
                 if key.split(":", 1)[1]:
                     d[key] = farm
             except Exception:
                 continue
     return d
 
-
 def _build_enterprises_dict():
     """
-    Construye dict: clave '<LABEL.value>:<ext_code>' (ambos normalizados).
+    Construye dict: clave '<TYPE>:<LABEL.value>:<ext_code>' (todos normalizados).
+    Incluye type_enterprise para evitar colisiones cuando el mismo código existe en diferentes tipos.
+    Carga TODOS los campos necesarios para evitar queries adicionales.
     """
     d = {}
-    for ent in Enterprise.objects.only("id", "ext_id"):
+    
+    for ent in Enterprise.objects.all():
+        type_val = ent.type_enterprise.value if hasattr(ent.type_enterprise, "value") else str(ent.type_enterprise)
         for ext in ent.ext_id:
             label = getattr(ext, "label", None)
             code = getattr(ext, "ext_code", None)
@@ -176,35 +121,22 @@ def _build_enterprises_dict():
                 label = ext.get("label")
                 code = ext.get("ext_code")
             label_val = label.value if hasattr(label, "value") else str(label)
-            key = f"{label_val}:{_to_clean_str(code)}"
-            if key.split(":", 1)[1]:
+            clean_code = to_clean_str(code)
+            if clean_code:
+                key = f"{type_val}:{label_val}:{clean_code}"
                 d[key] = ent
     return d
 
-
-# -----------------------------
-# Resolución y creación de FARM
-# -----------------------------
-def _get_adm3_for_side(row, is_origin: bool):
-    col = "ADM3_ORIGEN" if is_origin else "ADM3_DESTINO"
-    code = _to_clean_str(row.get(col))
-    if not code:
-        return None
-    adm = Adm3.objects(ext_id=code).only("id").first()
-    return adm
-
-
-def _get_or_create_farm_from_row(row, farms_dict, is_origin: bool, farm_source_from_param: str):
+def _get_farm_from_row(row, farms_dict, is_origin: bool):
     """
     Busca FARM por SIT_CODE_* y si no, PRODUCER_ID_*.
-    Si no existe, lo crea usando ADM3_* del mismo lado.
-    Devuelve el objeto Farm (o lanza ValueError si no se pudo crear/buscar).
+    Devuelve el objeto Farm o None si no se encuentra.
     """
     suffix = "ORIGEN" if is_origin else "DESTINO"
 
     # 1) Intento por SIT_CODE
     sit_col = f"{Source.SIT_CODE.value}_{suffix}"
-    sit_val = _to_clean_str(row.get(sit_col))
+    sit_val = to_clean_str(row.get(sit_col))
     if sit_val:
         farm = farms_dict.get(f"{Source.SIT_CODE.value}:{sit_val}")
         if farm:
@@ -212,116 +144,109 @@ def _get_or_create_farm_from_row(row, farms_dict, is_origin: bool, farm_source_f
 
     # 2) Fallback por PRODUCER_ID
     prod_col = f"{Source.PRODUCER_ID.value}_{suffix}"
-    prod_val = _to_clean_str(row.get(prod_col))
+    prod_val = to_clean_str(row.get(prod_col))
     if prod_val:
         farm = farms_dict.get(f"{Source.PRODUCER_ID.value}:{prod_val}")
         if farm:
             return farm
 
-    # 3) Si no existe → crear (requiere ADM3 válido)
-    adm3 = _get_adm3_for_side(row, is_origin)
-    if adm3 is None:
-        raise ValueError(f"No se encontró Adm3 para {'ORIGEN' if is_origin else 'DESTINO'}")
+    return None
 
-    try:
-        farm_source = FarmSource(farm_source_from_param)
-    except Exception:
-        farm_source = None
-
-    ext_ids = []
-    if sit_val:
-        ext_ids.append(ExtIdFarm(source=Source.SIT_CODE, ext_code=sit_val))
-    if prod_val:
-        ext_ids.append(ExtIdFarm(source=Source.PRODUCER_ID, ext_code=prod_val))
-    if not ext_ids:
-        raise ValueError(f"No hay SIT_CODE/PRODUCER_ID para crear Farm en {'ORIGEN' if is_origin else 'DESTINO'}")
-
-    farm = Farm(
-        adm3_id=adm3,
-        ext_id=ext_ids,
-        log=Log(enable=True, created=datetime.now(), updated=datetime.now()),
-        farm_source=farm_source
-    )
-    farm.save()
-
-    # Actualizar cache en memoria
-    for ext in ext_ids:
-        farms_dict[f"{ext.source.value}:{_to_clean_str(ext.ext_code)}"] = farm
-
-    return farm
-
-
-# -----------------------------
-# Resolución de ENTERPRISE
-# -----------------------------
-def _get_enterprise_from_row(row, enterprises_dict, is_origin=True):
+def _get_enterprise_from_row(row, enterprises_dict, is_origin=True, tipo_movement=None):
     """
     Busca ENTERPRISE probando:
       - Todos los labels exactos: f'{label.value}_ORIGEN/DESTINO'
       - Alias PRODUCER_ID_* -> PRODUCTIONUNIT_ID (compat. CSV)
       - Fallback: si hay PRODUCER_ID_* y no encontró con PRODUCTIONUNIT_ID,
                   probar el mismo código contra todos los labels.
+    
+    Args:
+        tipo_movement: TypeMovement para determinar el tipo de enterprise esperado
     """
     suffix = "ORIGEN" if is_origin else "DESTINO"
+    
+    type_enterprise_val = None
+    if tipo_movement:
+        if tipo_movement == TypeMovement.COLLECTION_CENTER:
+            type_enterprise_val = TypeEnterprise.COLLECTION_CENTER.value
+        elif tipo_movement == TypeMovement.SLAUGHTERHOUSE:
+            type_enterprise_val = TypeEnterprise.SLAUGHTERHOUSE.value
+        elif tipo_movement == TypeMovement.CATTLE_FAIR:
+            type_enterprise_val = TypeEnterprise.CATTLE_FAIR.value
 
-    # 1) Match exacto por todos los labels
     for label in Label:
         col_name = f"{label.value}_{suffix}"
         if col_name in row:
             ext_code_raw = row.get(col_name)
             if pd.notna(ext_code_raw):
-                ext_code = _to_clean_str(ext_code_raw)
+                ext_code = to_clean_str(ext_code_raw)
                 if ext_code:
-                    key = f"{label.value}:{ext_code}"
-                    ent = enterprises_dict.get(key)
-                    if ent:
-                        return ent
+                    if type_enterprise_val:
+                        key = f"{type_enterprise_val}:{label.value}:{ext_code}"
+                        ent = enterprises_dict.get(key)
+                        if ent:
+                            return ent
+                    else:
+                        # Sin tipo conocido, buscar en todos los tipos
+                        for type_ent in TypeEnterprise:
+                            key = f"{type_ent.value}:{label.value}:{ext_code}"
+                            ent = enterprises_dict.get(key)
+                            if ent:
+                                return ent
 
-    # 2) Alias: PRODUCER_ID_* -> PRODUCTIONUNIT_ID
     alias_col = f"PRODUCER_ID_{suffix}"
     alias_code = None
     if alias_col in row:
         ext_code_raw = row.get(alias_col)
         if pd.notna(ext_code_raw):
-            alias_code = _to_clean_str(ext_code_raw)
+            alias_code = to_clean_str(ext_code_raw)
             if alias_code:
-                key = f"{Label.PRODUCTIONUNIT_ID.value}:{alias_code}"
+                if type_enterprise_val:
+                    key = f"{type_enterprise_val}:{Label.PRODUCTIONUNIT_ID.value}:{alias_code}"
+                    ent = enterprises_dict.get(key)
+                    if ent:
+                        return ent
+                else:
+                    for type_ent in TypeEnterprise:
+                        key = f"{type_ent.value}:{Label.PRODUCTIONUNIT_ID.value}:{alias_code}"
+                        ent = enterprises_dict.get(key)
+                        if ent:
+                            return ent
+
+    if alias_code:
+        for label in Label:
+            if type_enterprise_val:
+                key = f"{type_enterprise_val}:{label.value}:{alias_code}"
                 ent = enterprises_dict.get(key)
                 if ent:
                     return ent
-
-    # 3) Fallback adicional: probar PRODUCER_ID_* contra TODOS los labels
-    if alias_code:
-        for label in Label:
-            key = f"{label.value}:{alias_code}"
-            ent = enterprises_dict.get(key)
-            if ent:
-                return ent
+            else:
+                for type_ent in TypeEnterprise:
+                    key = f"{type_ent.value}:{label.value}:{alias_code}"
+                    ent = enterprises_dict.get(key)
+                    if ent:
+                        return ent
 
     return None
 
-
-# ------------------------------------------
-# Guardar/actualizar: FARMS (new_farms*.csv)
-# ------------------------------------------
-def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source: str):
+def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source: str, farms_dict: dict):
+    """
+    Procesa CSV de farms. Actualiza farms_dict con nuevos farms creados.
+    """
     df = pd.read_csv(csv_path, dtype=str)
 
-    needed = [Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3", "TIPO"]
+    # Asegurar que columnas necesarias existan
+    needed = [Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3"]
     for col in needed:
         if col not in df.columns:
             df[col] = None
 
+    # Normalizar identificadores y códigos ADM3
     for col in [src.value for src in Source] + ["ADM3"]:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.replace('.0', '', regex=False).map(_to_clean_str)
+            df[col] = df[col].astype(str).str.replace('.0', '', regex=False).map(to_clean_str)
 
     adm3_dict = {adm.ext_id: adm for adm in Adm3.objects.only("id", "ext_id")}
-
-    farm_index = {}
-    for farm in Farm.objects():
-        for ext in farm.ext_id:
-            farm_index[(getattr(ext, "source", None), getattr(ext, "ext_code", None))] = farm
 
     try:
         farm_source_enum = FarmSource(farm_source)
@@ -333,7 +258,7 @@ def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source:
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="🧭 Guardando Farms (pre)"):
         try:
-            adm3_code = _to_clean_str(row.get("ADM3"))
+            adm3_code = to_clean_str(row.get("ADM3"))
             adm3_id = adm3_dict.get(adm3_code)
             if not adm3_id:
                 raise ValueError(f"No se encontró Adm3 con ID {adm3_code}")
@@ -341,16 +266,18 @@ def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source:
             ext_ids = []
             for src in Source:
                 col = src.value
-                ext_code = _to_clean_str(row.get(col))
+                ext_code = to_clean_str(row.get(col))
                 if ext_code:
                     ext_ids.append(ExtIdFarm(source=src, ext_code=ext_code))
 
             if not ext_ids:
                 raise ValueError("Fila sin identificadores externos (SIT/PRODUCER)")
 
+            # Buscar farm existente en farms_dict
             farm = None
             for ext in ext_ids:
-                farm = farm_index.get((ext.source, ext.ext_code))
+                key = f"{ext.source.value}:{to_clean_str(ext.ext_code)}"
+                farm = farms_dict.get(key)
                 if farm:
                     break
 
@@ -379,8 +306,9 @@ def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source:
                     farm_source=farm_source_enum
                 )
                 farm.save()
+                # Actualizar farms_dict compartido
                 for ext in ext_ids:
-                    farm_index[(ext.source, ext.ext_code)] = farm
+                    farms_dict[f"{ext.source.value}:{to_clean_str(ext.ext_code)}"] = farm
                 creados += 1
 
         except Exception as e:
@@ -398,20 +326,10 @@ def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source:
     log_print(logger, f"Farms → {creados} creados, {actualizados} actualizados, {sin_cambios} sin cambios, {errores} con error.")
 
 
-def _save_farm_identifiers(csv_folder_path: str, output_path_save: str, farm_source: str):
-    if not os.path.isdir(csv_folder_path):
-        return
-    for file in os.listdir(csv_folder_path):
-        if file.endswith(".csv") and "new_farms" in file:
-            csv_path = os.path.join(csv_folder_path, file)
-            log_print(logger, f"📄 Procesando Farms CSV: {csv_path}")
-            _process_farm_identifiers(csv_path, output_path_save, farm_source)
-
-
-# ------------------------------------------------
-# Guardar/actualizar: ENTERPRISE (new_enterprise)
-# ------------------------------------------------
-def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
+def _process_enterprise_identifiers(csv_path: str, output_path_save: str, enterprises_dict: dict):
+    """
+    Procesa CSV de enterprises. Actualiza enterprises_dict con nuevos enterprises creados.
+    """
     df = pd.read_csv(csv_path, dtype=str)
 
     needed = ["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]
@@ -421,25 +339,20 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
 
     for col in [lab.value for lab in Label] + ["ADM2"]:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.replace('.0', '', regex=False).map(_to_clean_str)
+            df[col] = df[col].astype(str).str.replace('.0', '', regex=False).map(to_clean_str)
 
     for c in ("LATITUD", "LONGITUD"):
         if c in df.columns:
-            df[c] = _to_float_series(df[c])
+            df[c] = to_float_series(df[c])
 
     adm2_dict = {adm.ext_id: adm for adm in Adm2.objects.only("id", "ext_id")}
-
-    enterprise_index = {}
-    for ent in Enterprise.objects():
-        for ext in ent.ext_id:
-            enterprise_index[(getattr(ext, "label", None), getattr(ext, "ext_code", None))] = ent
 
     creados = actualizados = sin_cambios = errores = 0
     error_rows = []
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="🏢 Guardando Enterprises (pre)"):
         try:
-            adm2_code = _to_clean_str(row.get("ADM2"))
+            adm2_code = to_clean_str(row.get("ADM2"))
             adm2_id = adm2_dict.get(adm2_code)
             if not adm2_id:
                 raise ValueError(f"No se encontró Adm2 con ID {adm2_code}")
@@ -447,15 +360,12 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
             ext_ids = []
             for label in Label:
                 col = label.value
-                ext_code = _to_clean_str(row.get(col))
+                ext_code = to_clean_str(row.get(col))
                 if ext_code:
                     ext_ids.append(ExtIdEnterprise(label=label, ext_code=ext_code))
+
             if not ext_ids:
-                base = _to_clean_str(row.get(Label.PRODUCTIONUNIT_ID.value))
-                if base:
-                    ext_ids.append(ExtIdEnterprise(label=Label.PRODUCTIONUNIT_ID, ext_code=base))
-                else:
-                    raise ValueError("Fila sin identificadores de enterprise")
+                raise ValueError("Fila sin identificadores de enterprise")
 
             name = (row.get("NOMBRE") or "").strip()
             tipo = (row.get("TIPO") or "").strip().upper()
@@ -464,8 +374,10 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
             type_enterprise = TypeEnterprise[tipo] if tipo in TypeEnterprise.__members__ else TypeEnterprise.ENTERPRISE
 
             enterprise = None
+            type_val = type_enterprise.value
             for ext in ext_ids:
-                enterprise = enterprise_index.get((ext.label, ext.ext_code))
+                key = f"{type_val}:{ext.label.value}:{to_clean_str(ext.ext_code)}"
+                enterprise = enterprises_dict.get(key)
                 if enterprise:
                     break
 
@@ -507,8 +419,9 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
                     log=Log(enable=True, created=datetime.now(), updated=datetime.now())
                 )
                 enterprise.save()
+                type_val = type_enterprise.value
                 for ext in ext_ids:
-                    enterprise_index[(ext.label, ext.ext_code)] = enterprise
+                    enterprises_dict[f"{type_val}:{ext.label.value}:{to_clean_str(ext.ext_code)}"] = enterprise
                 creados += 1
 
         except Exception as e:
@@ -525,20 +438,6 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str):
 
     log_print(logger, f"Enterprises → {creados} creados, {actualizados} actualizados, {sin_cambios} sin cambios, {errores} con error.")
 
-
-def _save_enterprise_identifiers(csv_folder_path: str, output_path_save: str):
-    if not os.path.isdir(csv_folder_path):
-        return
-    for file in os.listdir(csv_folder_path):
-        if file.endswith(".csv"):
-            csv_path = os.path.join(csv_folder_path, file)
-            log_print(logger, f"📄 Procesando Enterprise CSV: {csv_path}")
-            _process_enterprise_identifiers(csv_path, output_path_save)
-
-
-# -----------------------------
-# Núcleo: guardar movimientos (con batching)
-# -----------------------------
 def _detect_ganado_columns(df: pd.DataFrame):
     candidatas = [c for c in df.columns if c not in EXCLUDE_COLUMNS]
     def _is_numeric_like(series: pd.Series) -> bool:
@@ -591,9 +490,10 @@ def _flush_batch_movements(batch_docs, movements_ext_ids, counters, collection):
         return 0
 
 
-def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
+def procesar_csv_movimientos(csv_path, output_path_save, source_pro, farms_dict, enterprises_dict):
     """
     Procesa un archivo CSV de movimientos con inserción por lotes para acelerar.
+    Recibe farms_dict y enterprises_dict precargados (solo lectura).
     """
     df = pd.read_csv(csv_path, parse_dates=["DATE"], dayfirst=True)
     df.columns = (df.columns
@@ -614,11 +514,23 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
         log_print(logger, f"SourceMovement creado: {source_pro}")
     else:
         log_print(logger, f"SourceMovement existente: {source_pro}")
+    
+    try:
 
-    # caches
-    farms_dict = _build_farms_dict()
-    enterprises_dict = _build_enterprises_dict()
-    movements_ext_ids = set(Movement.objects.only("ext_id").scalar("ext_id"))
+        min_date = pd.to_datetime(df["DATE"].min())
+        max_date = pd.to_datetime(df["DATE"].max())
+        
+        log_print(logger, f"📅 Filtrando movements del rango {min_date.date()} - {max_date.date()}")
+        
+        movements_ext_ids = set(
+            Movement.objects(date__gte=min_date, date__lte=max_date)
+            .only("ext_id").scalar("ext_id")
+        )
+        log_print(logger, f"✅ Cargados {len(movements_ext_ids)} ext_ids existentes del rango {min_date.date()} - {max_date.date()}")
+    except Exception as e:
+        log_print(logger, f"⚠️ No se pudo filtrar por fechas ({e}), cargando TODOS los ext_ids...")
+        movements_ext_ids = set(Movement.objects.only("ext_id").scalar("ext_id"))
+        log_print(logger, f"✅ Cargados {len(movements_ext_ids)} ext_ids totales")
 
     # coleccion raw de pymongo para bulk insert
     collection = Movement._get_collection()
@@ -640,17 +552,16 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
     for index, row in tqdm(df.iterrows(), total=len(df), desc=f"Procesando {os.path.basename(csv_path)}"):
         try:
             try:
-                year_key = int(row["DATE"].year)
+                year_key = int(datetime.strptime(row["DATE"], "%Y-%m-%d").year)
             except Exception:
                 year_key = "sin_fecha"
             last_year_key = year_key
             total_rows_by_year[year_key] += 1
 
-            ext_id = _to_clean_str(row.get("EXT_ID"))
+            ext_id = to_clean_str(row.get("EXT_ID"))
             if not ext_id:
                 raise ValueError("EXT_ID vacío")
 
-            # si ya existe en DB (cache) o en batch -> skip
             if ext_id in movements_ext_ids or ext_id in batch_ext_ids:
                 counters['existentes'] += 1
                 existing_rows_by_year[year_key] += 1
@@ -665,19 +576,23 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
             enterprise_id_origin = enterprise_id_destination = None
 
             if type_origin == TypeMovement.FARM:
-                farm_obj = _get_or_create_farm_from_row(row, farms_dict, True, source_pro)
-                farm_id_origin = farm_obj.id if farm_obj else None
+                farm_obj = _get_farm_from_row(row, farms_dict, True)
+                if not farm_obj:
+                    raise ValueError("No se encontró Farm origen")
+                farm_id_origin = farm_obj.id
             else:
-                ent_obj = _get_enterprise_from_row(row, enterprises_dict, True)
+                ent_obj = _get_enterprise_from_row(row, enterprises_dict, True, type_origin)
                 if not ent_obj:
                     raise ValueError("No se encontró Enterprise origen")
                 enterprise_id_origin = ent_obj.id
 
             if type_destination == TypeMovement.FARM:
-                farm_obj2 = _get_or_create_farm_from_row(row, farms_dict, False, source_pro)
-                farm_id_destination = farm_obj2.id if farm_obj2 else None
+                farm_obj2 = _get_farm_from_row(row, farms_dict, False)
+                if not farm_obj2:
+                    raise ValueError("No se encontró Farm destino")
+                farm_id_destination = farm_obj2.id
             else:
-                ent_obj2 = _get_enterprise_from_row(row, enterprises_dict, False)
+                ent_obj2 = _get_enterprise_from_row(row, enterprises_dict, False, type_destination)
                 if not ent_obj2:
                     raise ValueError("No se encontró Enterprise destino")
                 enterprise_id_destination = ent_obj2.id
@@ -698,8 +613,10 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
             matched_rows_by_year[year_key] += 1
 
             # Construir documento "raw" para insertar
+            date_dt = pd.to_datetime(row["DATE"])
+            
             doc = {
-                "date": row["DATE"],
+                "date": date_dt.to_pydatetime(),
                 "ext_id": ext_id,
                 "type_origin": type_origin.value if hasattr(type_origin, "value") else str(type_origin),
                 "type_destination": type_destination.value if hasattr(type_destination, "value") else str(type_destination),
@@ -709,17 +626,15 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                 "farm_id_destination": farm_id_destination,
                 "enterprise_id_origin": enterprise_id_origin,
                 "enterprise_id_destination": enterprise_id_destination,
-                "movement": movement_list,
-                "log": {"enable": True, "created": datetime.now(), "updated": datetime.now()}
+                "movement": movement_list
+                #"log": {"enable": True, "created": datetime.now(), "updated": datetime.now()}
             }
 
             batch.append(doc)
             batch_ext_ids.add(ext_id)
 
-            # Si alcanzamos el tamaño de lote, hacemos flush
             if len(batch) >= BATCH_SIZE:
                 success = _flush_batch_movements(batch, movements_ext_ids, counters, collection)
-                # distribuimos los éxitos al año actual (aproximado)
                 inserted_rows_by_year[year_key] += success
                 batch = []
                 batch_ext_ids = set()
@@ -759,25 +674,18 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro):
                     list(error_rows_by_year.keys()))
     for y in sorted(years_all, key=lambda v: (9999 if v == "sin_fecha" else v)):
         summary_rows.append({
-            "year": y,
-            "total_rows": total_rows_by_year.get(y, 0),
-            "matched_rows": matched_rows_by_year.get(y, 0),
-            "inserted_rows": inserted_rows_by_year.get(y, 0),
-            "existing_rows": existing_rows_by_year.get(y, 0),
-            "error_rows": error_rows_by_year.get(y, 0)
+            "archivo": os.path.basename(csv_path),
+            "año": y,
+            "filas_totales": total_rows_by_year.get(y, 0),
+            "filas_coincidentes": matched_rows_by_year.get(y, 0),
+            "filas_insertadas": inserted_rows_by_year.get(y, 0),
+            "filas_existentes": existing_rows_by_year.get(y, 0),
+            "filas_error": error_rows_by_year.get(y, 0)
         })
 
-    summary_df = pd.DataFrame(summary_rows)
-    os.makedirs(output_path_save, exist_ok=True)
-    summary_name = f"movements_save_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    summary_path = os.path.join(output_path_save, summary_name)
-    summary_df.to_csv(summary_path, index=False, encoding="utf-8-sig")
-    log_print(logger, f"📊 Resumen por año guardado en: {summary_path}")
+    # Retornar estadísticas en lugar de guardarlas
+    return summary_rows
 
-
-# ----------------------------------------
-# Orquestador público (NO CAMBIA EL NOMBRE)
-# ----------------------------------------
 def save_movements(input_path_root, output_path_save, input_path_farm_enterprise, source_pro):
     """
     Orquesta el guardado en este orden:
@@ -785,27 +693,45 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
       2) Guarda/actualiza ENTERPRISES desde input_path_farm_enterprise/enterprise/*.csv
       3) Procesa y guarda MOVEMENTS desde input_path_root/movement/*.csv
     """
-    connect(db=config['MONGO_DB_NAME'], host=config['MONGO_URI'])
-
+    # Validar conexión a MongoDB
+    try:
+        connect(db=config['MONGO_DB_NAME'], host=config['MONGO_URI'])
+        db = get_db()
+        db.command('ping')
+        log_print(logger, "✅ Conexión a MongoDB exitosa")
+    except Exception as e:
+        log_print(logger, f"❌ Error al conectar a MongoDB: {e}")
+        raise
+    
+    log_print(logger, "🔄 Cargando cache de Farms y Enterprises...")
+    farms_dict = _build_farms_dict()
+    enterprises_dict = _build_enterprises_dict()
+    log_print(logger, f"✅ Cache cargado: farms {len(farms_dict)}, {len(enterprises_dict)} enterprises")
     # 1) FARMS
     farms_dir = os.path.join(input_path_farm_enterprise, "farms")
     if os.path.isdir(farms_dir):
-        files = [f for f in os.listdir(farms_dir) if f.endswith(".csv") and "new_farms" in f]
-        if files:
-            log_print(logger, f"Guardando Farms (pre): {farms_dir} → {len(files)} archivo(s)")
-            _save_farm_identifiers(farms_dir, output_path_save, source_pro)
+        farm_files = [os.path.join(farms_dir, f) for f in os.listdir(farms_dir) 
+                      if f.endswith(".csv") and "new_farms_to_create" in f.lower()]
+        if farm_files:
+            log_print(logger, f"Guardando Farms (pre): {farms_dir} → {len(farm_files)} archivo(s)")
+            for csv_path in farm_files:
+                log_print(logger, f"📄 Procesando Farms CSV: {csv_path}")
+                _process_farm_identifiers(csv_path, output_path_save, source_pro, farms_dict)
         else:
-            log_print(logger, "No hay CSV de 'new_farms' — se continúa.")
+            log_print(logger, "No hay CSV de 'new_farms_to_create' — se continúa.")
     else:
         log_print(logger, f"Carpeta de farms no existe: {farms_dir}")
 
     # 2) ENTERPRISES
     enterprise_dir = os.path.join(input_path_farm_enterprise, "enterprise")
     if os.path.isdir(enterprise_dir):
-        files = [f for f in os.listdir(enterprise_dir) if f.endswith(".csv")]
-        if files:
-            log_print(logger, f"Guardando Enterprises (pre): {enterprise_dir} → {len(files)} archivo(s)")
-            _save_enterprise_identifiers(enterprise_dir, output_path_save)
+        enterprise_files = [os.path.join(enterprise_dir, f) for f in os.listdir(enterprise_dir) 
+                            if f.endswith(".csv") and "new_enterprise" in f.lower()]
+        if enterprise_files:
+            log_print(logger, f"Guardando Enterprises (pre): {enterprise_dir} → {len(enterprise_files)} archivo(s)")
+            for csv_path in enterprise_files:
+                log_print(logger, f"📄 Procesando Enterprise CSV: {csv_path}")
+                _process_enterprise_identifiers(csv_path, output_path_save, enterprises_dict)
         else:
             log_print(logger, "No hay CSV en 'enterprise' — se continúa.")
     else:
@@ -817,12 +743,41 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
         log_print(logger, f"No existe carpeta movement: {path_movements}")
         return
 
-    archivos = [f for f in os.listdir(path_movements) if f.lower().endswith(".csv")]
+    archivos = [f for f in os.listdir(path_movements) if f.lower().endswith(".csv") and "movement_data_base" in f.lower()]
     if not archivos:
         log_print(logger, "No se encontraron CSV de movimientos.")
         return
 
-    for archivo in archivos:
-        ruta_completa = os.path.join(path_movements, archivo)
-        log_print(logger, f"Procesando archivo de movimientos: {archivo}")
-        procesar_csv_movimientos(ruta_completa, output_path_save, source_pro)
+    log_print(logger, f"🚀 Procesando {len(archivos)} archivo(s) de movimientos (paralelo: 3 workers)...")
+    
+    all_summary_rows = []
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        
+        future_to_file = {
+            executor.submit(procesar_csv_movimientos, os.path.join(path_movements, archivo), output_path_save, source_pro, farms_dict, enterprises_dict): archivo
+            for archivo in archivos
+        }
+        
+        # Procesar resultados conforme terminan
+        for future in as_completed(future_to_file):
+            archivo = future_to_file[future]
+            try:
+                summary_rows = future.result()  # Obtener estadísticas
+                if summary_rows:
+                    all_summary_rows.extend(summary_rows)
+                log_print(logger, f"✅ Completado: {archivo}")
+            except Exception as e:
+                log_print(logger, f"❌ Error procesando {archivo}: {e}")
+                logger.exception(f"Excepción en {archivo}")
+    
+    # Generar resumen consolidado al final
+    if all_summary_rows:
+        summary_df = pd.DataFrame(all_summary_rows)
+        os.makedirs(output_path_save, exist_ok=True)
+        summary_name = f"movements_save_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        summary_path = os.path.join(output_path_save, summary_name)
+        summary_df.to_csv(summary_path, index=False, encoding="utf-8-sig")
+        log_print(logger, f"📊 Resumen consolidado guardado en: {summary_path}")
+    else:
+        log_print(logger, "⚠️ No se generaron estadísticas para el resumen")
