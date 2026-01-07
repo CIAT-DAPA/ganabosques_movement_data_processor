@@ -17,65 +17,12 @@ from ganabosques_orm.collections.adm3 import Adm3  # <-- para validar catálogo 
 
 # Config (.env ya lo carga tu config.py)
 from config import config
+from tools.data_utils import to_clean_str, to_float_series
 
 
 # =========================
 # Utilidades y normalización
 # =========================
-def _to_clean_str(val) -> str:
-    """Normaliza IDs a string comparable (quita espacios, .0, notación científica, NaNs)."""
-    if val is None:
-        return ""
-    s = str(val).strip()
-    if s.lower() in ("nan", "none", "null"):
-        return ""
-    if s.endswith(".0"):
-        try:
-            s = str(int(float(s)))
-        except Exception:
-            pass
-    try:
-        if "e" in s.lower():
-            n = float(s)
-            s = str(int(n)) if n.is_integer() else str(n)
-    except Exception:
-        pass
-    return s
-
-
-def _to_float_series(col: pd.Series) -> pd.Series:
-    """
-    Convierte una serie a float de forma tolerante:
-    - Trim, elimina NBSP y separadores comunes
-    - Soporta coma decimal y miles mezclados ('.' y ',')
-    - Convierte '', '-', 'nan', 'none', 'null' a NaN
-    """
-    s = col.astype(str).str.strip().str.replace("\u00A0", "", regex=False)  # NBSP
-    s = s.replace(
-        {"": pd.NA, "-": pd.NA, "—": pd.NA, "--": pd.NA,
-         "nan": pd.NA, "NaN": pd.NA, "NONE": pd.NA, "None": pd.NA, "null": pd.NA, "NULL": pd.NA}
-    )
-
-    def _norm(x: str) -> str:
-        if x is pd.NA or x is None:
-            return x
-        x = str(x)
-        x = x.replace(" ", "").replace("'", "")  # miles como espacio/apóstrofo
-        # Solo comas -> coma decimal
-        if ("," in x) and ("." not in x):
-            x = x.replace(",", ".")
-        # Ambos separadores: decide por última aparición
-        elif ("," in x) and ("." in x):
-            if x.rfind(",") > x.rfind("."):
-                x = x.replace(".", "").replace(",", ".")  # punto miles, coma decimal
-            else:
-                x = x.replace(",", "")  # coma miles, punto decimal
-        return x
-
-    s = s.map(_norm)
-    return pd.to_numeric(s, errors="coerce")
-
-
 def _load_all_csv(folder: str) -> pd.DataFrame:
     if not os.path.isdir(folder):
         return pd.DataFrame()
@@ -106,7 +53,7 @@ def _cargar_existentes_en_mongo():
             else:
                 src, code = getattr(ext, "source", None), getattr(ext, "ext_code", None)
 
-            code_s = _to_clean_str(code)
+            code_s = to_clean_str(code)
             if not code_s:
                 continue
 
@@ -119,28 +66,24 @@ def _cargar_existentes_en_mongo():
 
 
 def _marcar_nuevos_farms(farms_df: pd.DataFrame) -> pd.DataFrame:
-    """Marca 'nuevos' por ausencia en Mongo (SIT -> fallback PRODUCER)."""
+    """Marca 'nuevos' por ausencia en Mongo (SIT -> fallback PRODUCER). Versión vectorizada."""
     for c in (Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3", "TIPO"):
         if c not in farms_df.columns:
             farms_df[c] = pd.NA
 
-    farms_df[Source.SIT_CODE.value] = farms_df[Source.SIT_CODE.value].map(_to_clean_str)
-    farms_df[Source.PRODUCER_ID.value] = farms_df[Source.PRODUCER_ID.value].map(_to_clean_str)
-    farms_df["ADM3"] = farms_df["ADM3"].map(_to_clean_str)
+    farms_df[Source.SIT_CODE.value] = farms_df[Source.SIT_CODE.value].map(to_clean_str)
+    farms_df[Source.PRODUCER_ID.value] = farms_df[Source.PRODUCER_ID.value].map(to_clean_str)
+    farms_df["ADM3"] = farms_df["ADM3"].map(to_clean_str)
     farms_df["TIPO"] = farms_df["TIPO"].astype(str).str.strip().str.upper()
 
     existing_sit, existing_prod = _cargar_existentes_en_mongo()
 
-    def _row_is_new(row):
-        sit = row[Source.SIT_CODE.value]
-        prod = row[Source.PRODUCER_ID.value]
-        if sit and sit in existing_sit:
-            return False
-        if prod and prod in existing_prod:
-            return False
-        return True
-
-    mask_new = farms_df.apply(_row_is_new, axis=1)
+    # Vectorizado: marcar filas encontradas por SIT o PRODUCER
+    sit_found = farms_df[Source.SIT_CODE.value].isin(existing_sit)
+    prod_found = farms_df[Source.PRODUCER_ID.value].isin(existing_prod)
+    
+    # Nuevos = NO encontrados en ninguno de los dos
+    mask_new = ~(sit_found | prod_found)
     return farms_df[mask_new].copy()
 
 
@@ -152,10 +95,10 @@ def _validar_adm3_catalogo(farms_df: pd.DataFrame) -> pd.DataFrame:
     # catálogo de Adm3
     adm3_catalog = set()
     for adm in Adm3.objects.only("ext_id"):
-        adm3_catalog.add(_to_clean_str(getattr(adm, "ext_id", None)))
+        adm3_catalog.add(to_clean_str(getattr(adm, "ext_id", None)))
 
     df = farms_df.copy()
-    df["ADM3"] = df["ADM3"].map(_to_clean_str)
+    df["ADM3"] = df["ADM3"].map(to_clean_str)
     mask_check = df["ADM3"].astype(str).str.len() > 0
     missing = df[mask_check & (~df["ADM3"].isin(adm3_catalog))].copy()
     return missing
@@ -208,7 +151,7 @@ def _centroides_adm2_desde_adm3(output_dir: str) -> pd.DataFrame:
         raise RuntimeError("No se encontró columna 'cod_mpio' dentro de ADM3.")
     col_adm2_name = cols_lower.get(prefer_name, None)
 
-    gdf["ADM2_CODE"] = gdf[col_adm2_code].astype(str).str.strip()
+    gdf["ADM2_CODE"] = pd.to_numeric(gdf[col_adm2_code], errors="coerce").astype("Int64").astype(str)
     if col_adm2_name:
         gdf["ADM2_NAME"] = gdf[col_adm2_name].astype(str).str.strip()
 
@@ -236,7 +179,7 @@ def _completar_coords_enterprise(new_enterprise: pd.DataFrame, output_dir: str) 
     centroids = _centroides_adm2_desde_adm3(output_dir)
 
     df = new_enterprise.copy()
-    df["ADM2"] = df["ADM2"].map(_to_clean_str)
+    df["ADM2"] = df["ADM2"].map(to_clean_str)
     df["LATITUD"] = pd.to_numeric(df["LATITUD"], errors="coerce")
     df["LONGITUD"] = pd.to_numeric(df["LONGITUD"], errors="coerce")
 
@@ -265,6 +208,59 @@ def _completar_coords_enterprise(new_enterprise: pd.DataFrame, output_dir: str) 
         df = df[~final_missing].copy()
 
     return df
+
+
+# =========================
+# Helper para merge de TXT
+# =========================
+def _merge_enterprise_txt(enterprise_df: pd.DataFrame, tipo_valor: str, txt_path: str, 
+                          key_candidates: list, name_candidates: list) -> pd.DataFrame:
+    """Función genérica para merge de CSV enterprise con TXT de información adicional."""
+    def _leer_txt_emp(path, key_candidates, name_candidates):
+        if not os.path.isfile(path):
+            return None, None, None
+        df = pd.read_csv(path, sep="|", encoding="latin1")
+        df.columns = df.columns.str.strip().str.upper()
+        key_col = next((c for c in key_candidates if c in df.columns), None)
+        name_col = next((c for c in name_candidates if c in df.columns), None)
+        if key_col is None:
+            raise RuntimeError(
+                f"No encontré columna llave en {os.path.basename(path)}. "
+                f"Probé {key_candidates}. Encabezados: {list(df.columns)}"
+            )
+        df[key_col] = df[key_col].map(to_clean_str)
+        for c in ("LATITUD", "LONGITUD"):
+            if c in df.columns:
+                df[c] = to_float_series(df[c])
+        return df, key_col, name_col
+    
+    txt_df, key_col, name_col = _leer_txt_emp(txt_path, key_candidates, name_candidates)
+    
+    if txt_df is not None:
+        tipo_filter = enterprise_df["TIPO"] == tipo_valor
+        merged = pd.merge(
+            enterprise_df[tipo_filter], txt_df,
+            left_on=Label.PRODUCTIONUNIT_ID.value, right_on=key_col, how="left"
+        )
+        if name_col and name_col in merged.columns:
+            merged = merged.rename(columns={name_col: "NOMBRE"})
+        else:
+            if "NOMBRE" not in merged.columns:
+                merged["NOMBRE"] = None
+        for col in ("LATITUD", "LONGITUD"):
+            if col not in merged.columns:
+                merged[col] = None
+        merged = merged[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
+    else:
+        tipo_filter = enterprise_df["TIPO"] == tipo_valor
+        merged = enterprise_df[tipo_filter][["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2"]].copy()
+        merged["NOMBRE"] = None
+        merged["LATITUD"] = None
+        merged["LONGITUD"] = None
+    
+    merged.drop_duplicates(subset=[Label.PRODUCTIONUNIT_ID.value], inplace=True)
+
+    return merged
 
 
 # =========================
@@ -307,21 +303,22 @@ def check(input_data: str, output_data: str, info: str):
     new_farms.to_csv(os.path.join(farms_output_path, "new_farms.csv"),
                      index=False, encoding="utf-8-sig")
 
-    # Export mínimo para crear (solo columnas clave)
-    new_farms_min = new_farms[[Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3", "TIPO"]].copy()
-    new_farms_min.to_csv(os.path.join(farms_output_path, "new_farms_to_create.csv"),
-                         index=False, encoding="utf-8-sig")
+    if not new_farms.empty:
+        # Export mínimo para crear (solo columnas clave)
+        new_farms_min = new_farms[[Source.SIT_CODE.value, Source.PRODUCER_ID.value, "ADM3", "TIPO"]].copy()
+        new_farms_min.to_csv(os.path.join(farms_output_path, "new_farms_to_create.csv"),
+                            index=False, encoding="utf-8-sig")
 
-    # Validación de ADM3 contra catálogo
-    farms_adm3_missing_catalog = _validar_adm3_catalogo(new_farms_min)
-    if not farms_adm3_missing_catalog.empty:
-        p = os.path.join(farms_output_path, "farms_adm3_not_in_catalog.csv")
-        farms_adm3_missing_catalog.to_csv(p, index=False, encoding="utf-8-sig")
-        print(f"⚠️ ADM3 no encontrados en catálogo: {len(farms_adm3_missing_catalog)} → {p}")
+        # Validación de ADM3 contra catálogo
+        farms_adm3_missing_catalog = _validar_adm3_catalogo(new_farms_min)
+        if not farms_adm3_missing_catalog.empty:
+            p = os.path.join(farms_output_path, "farms_adm3_not_in_catalog.csv")
+            farms_adm3_missing_catalog.to_csv(p, index=False, encoding="utf-8-sig")
+            print(f"⚠️ ADM3 no encontrados en catálogo: {len(farms_adm3_missing_catalog)} → {p}")
 
     # Log ADM3 problemático literal (valor especial)
     problem_value = "999999999999"
-    farms_df["ADM3"] = farms_df["ADM3"].map(_to_clean_str)
+    farms_df["ADM3"] = farms_df["ADM3"].map(to_clean_str)
     farms_with_problem = farms_df[farms_df["ADM3"] == problem_value].copy()
 
     log_csv_path = os.path.join(farms_output_path, "farms_adm3_issues.csv")
@@ -355,109 +352,33 @@ def check(input_data: str, output_data: str, info: str):
 
     # Normaliza base
     enterprise_df["TIPO"] = enterprise_df["TIPO"].astype(str).str.strip().str.upper()
-    enterprise_df[Label.PRODUCTIONUNIT_ID.value] = enterprise_df[Label.PRODUCTIONUNIT_ID.value].map(_to_clean_str)
-    enterprise_df["ADM2"] = enterprise_df["ADM2"].map(_to_clean_str)
+    enterprise_df[Label.PRODUCTIONUNIT_ID.value] = enterprise_df[Label.PRODUCTIONUNIT_ID.value].map(to_clean_str)
+    enterprise_df["ADM2"] = enterprise_df["ADM2"].map(to_clean_str)
 
     CC_VAL = str(TypeMovement.COLLECTION_CENTER.value).upper()
     SH_VAL = str(TypeMovement.SLAUGHTERHOUSE.value).upper()
     CF_VAL = str(TypeMovement.CATTLE_FAIR.value).upper()
 
-    # Helper lectura TXT con detección de columnas y conversión robusta de LAT/LON
-    def _leer_txt_emp(path, key_candidates, name_candidates):
-        if not os.path.isfile(path):
-            return None, None, None
-        df = pd.read_csv(path, sep="|", encoding="latin1")
-        df.columns = df.columns.str.strip().str.upper()
-        key_col = next((c for c in key_candidates if c in df.columns), None)
-        name_col = next((c for c in name_candidates if c in df.columns), None)
-        if key_col is None:
-            raise RuntimeError(
-                f"No encontré columna llave en {os.path.basename(path)}. "
-                f"Probé {key_candidates}. Encabezados: {list(df.columns)}"
-            )
-        df[key_col] = df[key_col].map(_to_clean_str)
-        for c in ("LATITUD", "LONGITUD"):
-            if c in df.columns:
-                df[c] = _to_float_series(df[c])
-        return df, key_col, name_col
-
     # COLLECTION CENTER
-    cc_txt, cc_key_col, cc_name_col = _leer_txt_emp(
-        cc_path,
+    merged_cc = _merge_enterprise_txt(
+        enterprise_df, CC_VAL, cc_path,
         key_candidates=["ID_CONCENTRACION", "ID_CC", "ID_CENTRO_ACOPIO", "ID_CONCENTRATION"],
         name_candidates=["NOMBRE_CONCENTRACION", "NOMBRE_CC", "NOMBRE", "NOMBRE_CENTRO_ACOPIO"]
     )
-    if cc_txt is not None:
-        cc_filter = enterprise_df["TIPO"] == CC_VAL
-        merged_cc = pd.merge(
-            enterprise_df[cc_filter], cc_txt,
-            left_on=Label.PRODUCTIONUNIT_ID.value, right_on=cc_key_col, how="left"
-        )
-        if cc_name_col and cc_name_col in merged_cc.columns:
-            merged_cc = merged_cc.rename(columns={cc_name_col: "NOMBRE"})
-        else:
-            if "NOMBRE" not in merged_cc.columns:
-                merged_cc["NOMBRE"] = None
-        for col in ("LATITUD", "LONGITUD"):
-            if col not in merged_cc.columns:
-                merged_cc[col] = None
-        merged_cc = merged_cc[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
-    else:
-        cc_filter = enterprise_df["TIPO"] == CC_VAL
-        merged_cc = enterprise_df[cc_filter][["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2"]].copy()
-        merged_cc["NOMBRE"] = None; merged_cc["LATITUD"] = None; merged_cc["LONGITUD"] = None
 
     # SLAUGHTERHOUSE
-    sh_txt, sh_key_col, sh_name_col = _leer_txt_emp(
-        sh_path,
+    merged_sh = _merge_enterprise_txt(
+        enterprise_df, SH_VAL, sh_path,
         key_candidates=["ID_PLANTA_BENEFICIO", "ID_PB", "ID_PLANTA"],
         name_candidates=["NOMBRE_PLANTA_BENEFICIO", "NOMBRE_PB", "NOMBRE"]
     )
-    if sh_txt is not None:
-        sh_filter = enterprise_df["TIPO"] == SH_VAL
-        merged_sh = pd.merge(
-            enterprise_df[sh_filter], sh_txt,
-            left_on=Label.PRODUCTIONUNIT_ID.value, right_on=sh_key_col, how="left"
-        )
-        if sh_name_col and sh_name_col in merged_sh.columns:
-            merged_sh = merged_sh.rename(columns={sh_name_col: "NOMBRE"})
-        else:
-            if "NOMBRE" not in merged_sh.columns:
-                merged_sh["NOMBRE"] = None
-        for col in ("LATITUD", "LONGITUD"):
-            if col not in merged_sh.columns:
-                merged_sh[col] = None
-        merged_sh = merged_sh[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
-    else:
-        sh_filter = enterprise_df["TIPO"] == SH_VAL
-        merged_sh = enterprise_df[sh_filter][["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2"]].copy()
-        merged_sh["NOMBRE"] = None; merged_sh["LATITUD"] = None; merged_sh["LONGITUD"] = None
 
     # CATTLE FAIR
-    cf_txt, cf_key_col, cf_name_col = _leer_txt_emp(
-        cf_path,
+    merged_cf = _merge_enterprise_txt(
+        enterprise_df, CF_VAL, cf_path,
         key_candidates=["ID_FERIA", "ID_CATTLE_FAIR", "ID_CF", "ID_CONCENTRACION", "ID_CC"],
         name_candidates=["NOMBRE_FERIA", "NOMBRE_CATTLE_FAIR", "NOMBRE", "NOMBRE_CONCENTRACION", "NOMBRE_CC"]
     )
-    if cf_txt is not None:
-        cf_filter = enterprise_df["TIPO"] == CF_VAL
-        merged_cf = pd.merge(
-            enterprise_df[cf_filter], cf_txt,
-            left_on=Label.PRODUCTIONUNIT_ID.value, right_on=cf_key_col, how="left"
-        )
-        if cf_name_col and cf_name_col in merged_cf.columns:
-            merged_cf = merged_cf.rename(columns={cf_name_col: "NOMBRE"})
-        else:
-            if "NOMBRE" not in merged_cf.columns:
-                merged_cf["NOMBRE"] = None
-        for col in ("LATITUD", "LONGITUD"):
-            if col not in merged_cf.columns:
-                merged_cf[col] = None
-        merged_cf = merged_cf[["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2", "NOMBRE", "LATITUD", "LONGITUD"]]
-    else:
-        cf_filter = enterprise_df["TIPO"] == CF_VAL
-        merged_cf = enterprise_df[cf_filter][["TIPO", Label.PRODUCTIONUNIT_ID.value, "ADM2"]].copy()
-        merged_cf["NOMBRE"] = None; merged_cf["LATITUD"] = None; merged_cf["LONGITUD"] = None
 
     # Otros tipos
     others = enterprise_df[~(enterprise_df["TIPO"].isin([CC_VAL, SH_VAL, CF_VAL]))][
@@ -469,7 +390,7 @@ def check(input_data: str, output_data: str, info: str):
     new_enterprise = pd.concat([merged_cc, merged_sh, merged_cf, others], ignore_index=True)
     new_enterprise["NOMBRE"] = new_enterprise["NOMBRE"].astype(str).str.strip()
     new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].isin(["", "nan", "None"])]
-    new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("---INACTIVA---", case=False, na=False)]
+    #new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("---INACTIVA---", case=False, na=False)]
     new_enterprise = new_enterprise[~new_enterprise["NOMBRE"].str.contains("^-+$", na=False)]
 
     # Completar coordenadas con centroides de ADM2
@@ -479,7 +400,7 @@ def check(input_data: str, output_data: str, info: str):
     enterprise_output_path = os.path.join(output_data, "enterprise")
     os.makedirs(enterprise_output_path, exist_ok=True)
     if not new_enterprise.empty:
-        new_enterprise = new_enterprise.drop_duplicates(subset=[Label.PRODUCTIONUNIT_ID.value])
+        new_enterprise = new_enterprise.drop_duplicates(subset=["TIPO", Label.PRODUCTIONUNIT_ID.value])
 
     final_csv = os.path.join(enterprise_output_path, "new_enterprise.csv")
     new_enterprise.to_csv(final_csv, index=False, encoding="utf-8-sig")

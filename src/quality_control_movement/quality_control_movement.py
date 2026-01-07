@@ -154,6 +154,6 @@ def mov_quality_control(path_input, path_output, source="SIGMA"):
 
     # === Log consolidado ===
     df_log = pd.DataFrame(log_data)
-    df_log.to_csv(os.path.join(path_output, "log_mov_quality_control.csv"), index=False, encoding='utf-8-sig')
-    log_print(logger, "📄 Log guardado como: log_mov_quality_control.csv")
+    df_log.to_csv(os.path.join(path_output, "log_mov_quality_control.txt"), index=False, encoding='utf-8-sig', sep="|")
+    log_print(logger, "📄 Log guardado como: log_mov_quality_control.txt")
     log_print(logger, "✅ Proceso finalizado.")

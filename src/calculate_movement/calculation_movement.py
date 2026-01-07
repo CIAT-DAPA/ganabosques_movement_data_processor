@@ -179,7 +179,6 @@ def calc_mov(path_input, path_output, source="SIGMA"):
             })
 
             empresas = pd.concat([empresas_origen, empresas_destino], ignore_index=True)
-            empresas = empresas.drop_duplicates(subset=[Label.PRODUCTIONUNIT_ID.value])
             empresas = safe_convert_int(empresas, [Label.PRODUCTIONUNIT_ID.value, "ADM2"])
 
             enterprise_output_file = os.path.join(enterprise_dir, f"enterprise_data_base_{year_used}.csv")
