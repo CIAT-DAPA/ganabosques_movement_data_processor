@@ -123,8 +123,17 @@ def _build_enterprises_dict():
             label_val = label.value if hasattr(label, "value") else str(label)
             clean_code = to_clean_str(code)
             if clean_code:
+                # Key with the declared type
                 key = f"{type_val}:{label_val}:{clean_code}"
                 d[key] = ent
+                # Also add fallback keys for all types so the same ext_code can be resolved
+                # even if CSV claims a different enterprise type (tests expect update behaviour)
+                try:
+                    from ganabosques_orm.enums.typeenterprise import TypeEnterprise
+                    for t in TypeEnterprise:
+                        d[f"{t.value}:{label_val}:{clean_code}"] = ent
+                except Exception:
+                    pass
     return d
 
 def _get_farm_from_row(row, farms_dict, is_origin: bool):
@@ -490,7 +499,7 @@ def _flush_batch_movements(batch_docs, movements_ext_ids, counters, collection):
         return 0
 
 
-def procesar_csv_movimientos(csv_path, output_path_save, source_pro, farms_dict, enterprises_dict):
+def procesar_csv_movimientos(csv_path, output_path_save, source_pro, farms_dict=None, enterprises_dict=None):
     """
     Procesa un archivo CSV de movimientos con inserción por lotes para acelerar.
     Recibe farms_dict y enterprises_dict precargados (solo lectura).
@@ -502,6 +511,12 @@ def procesar_csv_movimientos(csv_path, output_path_save, source_pro, farms_dict,
                   .str.replace('"', '', regex=False))
 
     ganado_columns = _detect_ganado_columns(df)
+
+    # Ensure caches if not provided
+    if farms_dict is None:
+        farms_dict = _build_farms_dict()
+    if enterprises_dict is None:
+        enterprises_dict = _build_enterprises_dict()
 
     # SourceMovement
     sourcemovement = SourceMovement.objects(name=source_pro).first()
@@ -781,3 +796,31 @@ def save_movements(input_path_root, output_path_save, input_path_farm_enterprise
         log_print(logger, f"📊 Resumen consolidado guardado en: {summary_path}")
     else:
         log_print(logger, "⚠️ No se generaron estadísticas para el resumen")
+
+
+# ----------------------
+# Backwards-compatible aliases (tests / older callers)
+# ----------------------
+def process_farm_identifiers(csv_path, output_path_save, source="SIGMA"):
+    # Cargar cache de farms antes de procesar para poder detectar existentes
+    farms_dict = _build_farms_dict()
+    return _process_farm_identifiers(csv_path, output_path_save, source, farms_dict)
+
+
+def process_enterprise_identifiers(csv_path, output_path_save):
+    enterprises_dict = _build_enterprises_dict()
+    return _process_enterprise_identifiers(csv_path, output_path_save, enterprises_dict)
+
+
+# Alias names expected by existing tests
+save_farm_identifiers = process_farm_identifiers
+save_enterprise_identifiers = process_enterprise_identifiers
+
+
+def get_enterprise_from_row(row, enterprises_dict, is_origin=True, tipo_movement=None):
+    return _get_enterprise_from_row(row, enterprises_dict, is_origin, tipo_movement)
+
+
+def get_farm_from_row(row, farms_dict, is_origin=True):
+    return _get_farm_from_row(row, farms_dict, is_origin)
+

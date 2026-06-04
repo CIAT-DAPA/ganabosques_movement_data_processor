@@ -43,17 +43,23 @@ def to_float_series(col: pd.Series) -> pd.Series:
     def _norm(x: str) -> str:
         if x is pd.NA or x is None:
             return x
-        x = str(x)
-        x = x.replace(" ", "").replace("'", "")  # miles como espacio/apóstrofo
-        # Solo comas -> coma decimal
+
+        x = str(x).replace("\u00A0", " ").strip()
+
+        # quitar espacios internos (miles)
+        x = x.replace(" ", "").replace("'", "")
+
+        # caso coma decimal
         if ("," in x) and ("." not in x):
             x = x.replace(",", ".")
-        # Ambos separadores: decide por última aparición
+
+        # ambos separadores
         elif ("," in x) and ("." in x):
             if x.rfind(",") > x.rfind("."):
-                x = x.replace(".", "").replace(",", ".")  # punto miles, coma decimal
+                x = x.replace(".", "").replace(",", ".")
             else:
-                x = x.replace(",", "")  # coma miles, punto decimal
+                x = x.replace(",", "")
+
         return x
 
     s = s.map(_norm)
