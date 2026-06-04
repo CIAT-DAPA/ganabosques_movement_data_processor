@@ -14,6 +14,13 @@ def mongo_mock():
     yield
     disconnect()
 
+@pytest.fixture(autouse=True)
+def mock_env(monkeypatch):
+    monkeypatch.setenv("WORKSPACE", "/tmp")
+    monkeypatch.setenv("DATA", "/tmp")
+    monkeypatch.setenv("MONGO_URI", "mongodb://localhost:27017")
+    monkeypatch.setenv("MONGO_DB_NAME", "test")
+
 @pytest.fixture(scope="function", autouse=True)
 def create_admin_hierarchy(mongo_mock):
     """Fixture que crea una jerarquía administrativa completa (Adm1 → Adm2 → Adm3) para pruebas unitarias.
