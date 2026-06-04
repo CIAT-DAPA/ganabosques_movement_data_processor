@@ -7,6 +7,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 import main
 
+@pytest.fixture(autouse=True)
+def mock_config():
+    with patch("main.config", {
+        "WORKSPACE": "/tmp/workspace",
+        "DATA": "/tmp/data"
+    }):
+        yield
+
 
 def test_main_function_exists():
     assert callable(main.main)
