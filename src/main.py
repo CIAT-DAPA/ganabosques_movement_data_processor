@@ -12,7 +12,13 @@ from check_farms_enterprise import check
 from ganabosques_orm.enums.farmsource import FarmSource
 
 # Ruta base de trabajo
-base_path = os.path.join(config['WORKSPACE'], "movilizacion")
+workspace = config.get("WORKSPACE")
+
+if workspace:
+    base_path = os.path.join(workspace, "movilizacion")
+else:
+    base_path = ""
+
 os.makedirs(base_path, exist_ok=True)
 
 # Configuración del logger
