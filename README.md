@@ -95,7 +95,7 @@ GEO_USER
 GEO_PWD
 
 # Name of the GeoServer workspace, which must be created before running the code
-GEO_WORKSPACE
+GEO_WORKSPACE_ADMIN
 
 # Name of the GeoServer data store created for publishing features
 GEO_STORE
@@ -128,8 +128,8 @@ URL_GEO=http://localhost:8600/geoserver
 WORKSPACE=/path/to/ganabosques/data/
 GEO_USER=admin
 GEO_PWD=geoserver
-GEO_WORKSPACE=administrative
-GEO_STORE=divipola
+GEO_WORKSPACE_ADMIN=administrative
+GEO_STORE=admin_3
 MONGO_URI=mongodb://usuario:contraseña@localhost:27017
 MONGO_DB_NAME=ganabosques
 DATA=/path/to/ganabosques/data/data/movements
@@ -146,8 +146,8 @@ set URL_GEO=http://localhost:8600/geoserver
 set WORKSPACE=/path/to/ganabosques/data/
 set GEO_USER=admin
 set GEO_PWD=geoserver
-set GEO_WORKSPACE=administrative
-set GEO_STORE=divipola
+set GEO_WORKSPACE_ADMIN=administrative
+set GEO_STORE=admin_3
 set MONGO_URI=mongodb://usuario:contraseña@localhost:27017
 set MONGO_DB_NAME=ganabosques
 set DATA=/path/to/ganabosques/data/data/movements
@@ -160,8 +160,8 @@ export URL_GEO=http://localhost:8600/geoserver
 export WORKSPACE=/path/to/ganabosques/data/
 export GEO_USER=admin
 export GEO_PWD=geoserver
-export GEO_WORKSPACE=administrative
-export GEO_STORE=divipola
+export GEO_WORKSPACE_ADMIN=administrative
+export GEO_STORE=admin_3
 export MONGO_URI=mongodb://localhost:27017
 export MONGO_DB_NAME=ganabosques
 export DATA=/path/to/ganabosques/data/data/movements
