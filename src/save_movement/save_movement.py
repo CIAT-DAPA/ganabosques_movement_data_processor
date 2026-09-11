@@ -31,6 +31,7 @@ from ganabosques_orm.collections.adm3 import Adm3
 from ganabosques_orm.auxiliaries.extidenterprise import ExtIdEnterprise
 from ganabosques_orm.enums.typeenterprise import TypeEnterprise
 from ganabosques_orm.collections.adm2 import Adm2
+from ganabosques_orm.enums.valuechain import ValueChain
 
 # Logger
 def log_print(logger, message: str):
@@ -129,7 +130,6 @@ def _build_enterprises_dict():
                 # Also add fallback keys for all types so the same ext_code can be resolved
                 # even if CSV claims a different enterprise type (tests expect update behaviour)
                 try:
-                    from ganabosques_orm.enums.typeenterprise import TypeEnterprise
                     for t in TypeEnterprise:
                         d[f"{t.value}:{label_val}:{clean_code}"] = ent
                 except Exception:
@@ -312,6 +312,7 @@ def _process_farm_identifiers(csv_path: str, output_path_save: str, farm_source:
                     adm3_id=adm3_id,
                     ext_id=ext_ids,
                     log=Log(enable=True, created=datetime.now(), updated=datetime.now()),
+                    value_chain=ValueChain.LIVESTOCK.value,
                     farm_source=farm_source_enum
                 )
                 farm.save()
@@ -425,6 +426,7 @@ def _process_enterprise_identifiers(csv_path: str, output_path_save: str, enterp
                     adm2_id=adm2_id,
                     type_enterprise=type_enterprise,
                     ext_id=ext_ids,
+                    value_chain=ValueChain.LIVESTOCK.value,
                     log=Log(enable=True, created=datetime.now(), updated=datetime.now())
                 )
                 enterprise.save()

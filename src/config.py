@@ -16,7 +16,7 @@ config['URL_GEO'] = os.getenv("URL_GEO")
 config['WORKSPACE'] = os.getenv('WORKSPACE')
 config['GEO_USER'] = os.getenv("GEO_USER")
 config['GEO_PWD'] = os.getenv("GEO_PWD")
-config['GEO_WORKSPACE'] = os.getenv("GEO_WORKSPACE")
+config['GEO_WORKSPACE'] = os.getenv("GEO_WORKSPACE_ADMIN")
 config['GEO_STORE'] = os.getenv("GEO_STORE")
 
 config["columnas_requeridas_sigma"]= [
